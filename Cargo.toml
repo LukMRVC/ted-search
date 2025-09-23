@@ -1,0 +1,9 @@
+[workspace]
+members = ["lib/ted-base","lib/ted-lb","lib/ted-search", "lib/tree-parsing"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]

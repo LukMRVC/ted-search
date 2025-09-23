@@ -1,0 +1,6 @@
+[package]
+name = "tree-parsing"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
