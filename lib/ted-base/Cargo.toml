@@ -4,3 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+tree-parsing = { path = "../tree-parsing", version = "0.1.0" }

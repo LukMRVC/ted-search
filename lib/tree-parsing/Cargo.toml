@@ -4,3 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+crossbeam-channel = "0.5.15"
+indextree.workspace = true
+itertools.workspace = true
+memchr.workspace = true
+rayon.workspace = true
+serde = "1.0.226"
+thiserror.workspace = true

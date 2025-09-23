@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib/ted-base","lib/ted-lb","lib/ted-search", "lib/tree-parsing"]
+members = ["lib/ted-base", "lib/ted-lb", "lib/ted-search", "lib/tree-parsing"]
 resolver = "2"
 
 [workspace.package]
@@ -7,3 +7,9 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+thiserror = "2.0.16"
+memchr = "2.7.5"
+rustc-hash = "2.1.1"
+indextree = { version = "4.7.4", features = ["default", "rayon", "par_iter"] }
+rayon = { version = "1.11.0", features = [] }
+itertools = { version = "0.14.0", features = [] }
