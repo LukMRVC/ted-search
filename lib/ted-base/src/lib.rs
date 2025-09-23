@@ -16,19 +16,36 @@ pub trait LowerBoundMethod {
     /// If `SUPPORTS_INDEX` is false, this can be `()`
     type IndexType;
 
+    /// Type of parameters for index construction if needed
+    /// If no parameters are needed, this can be `()`
+    type IndexParams;
+
     /// Preprocess the data before computing lower bound
-    fn preprocess(&mut self, data: &[ParsedTree]) -> Result<Self::PreprocessedDataType, String>;
+    fn preprocess(
+        &mut self,
+        data: &[ParsedTree],
+    ) -> Result<Vec<Self::PreprocessedDataType>, String>;
 
-    /// Compute the lower bound
-    fn lower_bound(query: &Self::PreprocessedDataType, data: &Self::PreprocessedDataType) -> usize;
+    /// Compute the lower bound for 2 preprocessed trees
+    /// and a given threshold
+    fn lower_bound(
+        query: &Self::PreprocessedDataType,
+        data: &Self::PreprocessedDataType,
+        threshold: usize,
+    ) -> usize;
 
-    fn build_index(data: &[Self::PreprocessedDataType]) -> Result<Self::IndexType, String>;
+    fn build_index(
+        data: &[Self::PreprocessedDataType],
+        params: &Self::IndexParams,
+    ) -> Result<Self::IndexType, String>;
 
     /// Query the index with the preprocessed query data
+    /// and return a list of candidate indices
     fn query_index(
         query: &Self::PreprocessedDataType,
         index: &Self::IndexType,
-    ) -> Vec<(usize, usize)>;
+        threshold: usize,
+    ) -> Vec<usize>;
 }
 
 /// Enum to identify different algorithm types

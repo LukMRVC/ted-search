@@ -215,7 +215,6 @@ pub fn parse_tree(tokens: &[String], ld: &LabelDict) -> Result<ParsedTree, TreeP
             }
         }
     }
-
     Ok(tree_arena)
 }
 

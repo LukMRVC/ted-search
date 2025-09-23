@@ -1,6 +1,0 @@
-[package]
-name = "ted-lb"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
