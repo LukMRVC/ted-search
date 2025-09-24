@@ -12,6 +12,10 @@ pub trait LowerBoundMethod {
     /// If no preprocessing is needed, this can be `()`
     type PreprocessedDataType;
 
+    /// Type of parameters for preprocessing if needed
+    /// If no parameters are needed, this can be `()`
+    type PreprocessParams;
+
     /// Type of index if supported
     /// If `SUPPORTS_INDEX` is false, this can be `()`
     type IndexType;
@@ -24,6 +28,7 @@ pub trait LowerBoundMethod {
     fn preprocess(
         &mut self,
         data: &[ParsedTree],
+        params: Self::PreprocessParams,
     ) -> Result<Vec<Self::PreprocessedDataType>, String>;
 
     /// Compute the lower bound for 2 preprocessed trees
@@ -52,7 +57,7 @@ pub trait LowerBoundMethod {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlgorithmType {
     Sed,
-    SedStruct,
+    StringStruct,
     Structural,
     BinaryBranch,
     LabelIntersection,

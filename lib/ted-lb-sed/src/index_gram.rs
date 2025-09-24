@@ -48,11 +48,6 @@ impl IndexGram {
         let sig_size = query.len().div_ceil(self.q);
         let min_allowed_sig_size = query.len() / self.q;
         if k >= min_allowed_sig_size {
-            // eprintln!(
-            //     "{k} > {}, output may have false negatives! lb={lb}",
-            //     chunks.len(),
-            //     lb = sig_size - k
-            // );
             return Err("Query is too small for that threshold!".to_owned());
         }
         let min_match_size = query.len().saturating_sub(k) as i32;

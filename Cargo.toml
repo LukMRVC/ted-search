@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib/ted-base", "lib/ted-lb-sed", "lib/ted-search", "lib/tree-parsing"]
+members = ["lib/ted-base", "lib/ted-lb-sed", "lib/ted-lb-sed-struct", "lib/ted-search", "lib/tree-parsing"]
 resolver = "2"
 
 [workspace.package]

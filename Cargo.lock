@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ted-lb-sed-struct"
+version = "0.1.0"
+dependencies = [
+ "indextree",
+ "ted-base",
+ "tree-parsing",
+]
+
+[[package]]
 name = "ted-search"
 version = "0.1.0"
 

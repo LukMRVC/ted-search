@@ -1,5 +1,3 @@
-use std::usize;
-
 use indextree::NodeId;
 use ted_base::{AlgorithmFactory, LowerBoundMethod};
 use tree_parsing::{LabelId, ParsedTree};
@@ -39,10 +37,12 @@ impl LowerBoundMethod for SedAlgorithm {
     type PreprocessedDataType = SEDIndex;
     type IndexType = IndexGram;
     type IndexParams = IndexParams;
+    type PreprocessParams = ();
 
     fn preprocess(
         &mut self,
         data: &[ParsedTree],
+        _params: Self::PreprocessParams,
     ) -> Result<Vec<Self::PreprocessedDataType>, String> {
         Ok(data.iter().map(preprocess_tree).collect::<Vec<_>>())
     }
@@ -187,7 +187,7 @@ fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
 
         unsafe {
             if !(*next_row.get_unchecked(condition_row as usize) < s1len && i <= threshold) {
-                if !(*next_row.get_unchecked(condition_row as usize) >= s1len) && i > threshold {
+                if (*next_row.get_unchecked(condition_row as usize) < s1len) && i > threshold {
                     break usize::MAX;
                 }
                 break (i - 1) as usize;
