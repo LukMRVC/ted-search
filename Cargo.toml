@@ -1,5 +1,5 @@
 [workspace]
-members = ["lib/ted-base", "lib/ted-lb-label-intersection", "lib/ted-lb-sed", "lib/ted-lb-sed-struct", "lib/ted-search", "lib/tree-parsing", "ted-lb-structural"]
+members = ["lib/ted-base", "lib/ted-lb-label-intersection", "lib/ted-lb-sed", "lib/ted-lb-sed-struct", "lib/ted-search", "lib/tree-parsing", "lib/ted-lb-structural"]
 resolver = "2"
 
 [workspace.package]
