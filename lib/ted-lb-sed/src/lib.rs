@@ -197,12 +197,12 @@ fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
 }
 
 /// Gets the SED index for a given tree
-fn preprocess_tree(tree: &ParsedTree) -> SEDIndex {
+fn preprocess_tree(tree: &ParsedTree) -> <SedAlgorithm as LowerBoundMethod>::PreprocessedDataType {
     let Some(root) = tree.iter().next() else {
         panic!("Unable to get root but tree is not empty!");
     };
 
-    let root_id = tree.get_node_id(root).unwrap();
+    let root_id = tree.get_node_id(root).expect("Failed to get root node id");
 
     let mut pre = Vec::with_capacity(tree.count());
     let mut post = Vec::with_capacity(tree.count());
