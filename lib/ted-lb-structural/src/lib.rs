@@ -1,3 +1,5 @@
+use indextree::NodeId;
+use itertools::Itertools;
 use rustc_hash::FxHashMap;
 use ted_base::{AlgorithmFactory, LowerBoundMethod};
 use tree_parsing::LabelId;
@@ -13,15 +15,19 @@ const REGION_RIGHT_IDX: usize = 2;
 /// descendants
 const REGION_DESC_IDX: usize = 3;
 
+type StructuralRegionType = i32;
+
 pub struct StructuralVector {
     /// Vector of number of nodes to the left (preceding), ancestors, nodes to right (following) and descendants
-    pub regions: [usize; 4],
+    pub regions: [StructuralRegionType; 4],
     pub postorder_id: usize,
 }
 
+type LabelMap = FxHashMap<LabelId, Vec<StructuralVector>>;
+
 pub struct StructuralLabelMap {
     tree_size: usize,
-    label_map: FxHashMap<LabelId, Vec<StructuralVector>>,
+    label_map: LabelMap,
 }
 
 impl LowerBoundMethod for StructuralLowerBoundMethod {
@@ -50,19 +56,34 @@ impl LowerBoundMethod for StructuralLowerBoundMethod {
         // TODO: Implement preprocessing to create StructuralLabelMap for each tree
         // contains structural vectors for the current tree
         // is it a hash map of Label -> Vec<StructVec>
-        let mut record_labels = StructHashMap::default();
+        Ok(data
+            .iter()
+            .map(|tree| {
+                let mut actual_depth: StructuralRegionType = 0;
+                let mut actual_post_order_number: StructuralRegionType = 0;
+                let mut postorder_id = 0usize;
 
-        let Some(root) = tree.iter().next() else {
-            panic!("tree is empty");
-        };
-        let root_id = tree.get_node_id(root).unwrap();
-        // for recursive postorder traversal
-        let mut postorder_id = 0;
+                let Some(root) = tree.iter().next() else {
+                    panic!("tree is empty");
+                };
+                let root_id = tree.get_node_id(root).expect("Root node msut exist");
+                let mut record_labels = LabelMap::default();
 
-        self.tree_size_by_split_id[0] = tree.count() as RegionNumType;
+                create_record(
+                    &root_id,
+                    tree,
+                    &mut postorder_id,
+                    &mut actual_depth,
+                    &mut actual_post_order_number,
+                    &mut record_labels,
+                );
 
-        // array of records stored in sets_collection
-        self.create_record(&root_id, tree, &mut postorder_id, &mut record_labels);
+                Self::PreprocessedDataType {
+                    tree_size: tree.count(),
+                    label_map: record_labels,
+                }
+            })
+            .collect_vec())
     }
 
     fn query_index(
@@ -82,53 +103,49 @@ impl LowerBoundMethod for StructuralLowerBoundMethod {
 }
 
 fn create_record(
-    &mut self,
     root_id: &NodeId,
-    tree: &ParsedTree,
+    tree: &tree_parsing::ParsedTree,
     postorder_id: &mut usize,
-    record_labels: &mut StructHashMap,
-) -> RegionNumType {
+    actual_depth: &mut StructuralRegionType,
+    actual_post_order_number: &mut StructuralRegionType,
+    record_labels: &mut LabelMap,
+) -> StructuralRegionType {
     // number of children = subtree_size - 1
     // subtree_size = 1 -> actual node + sum of children
     let mut subtree_size = 1;
 
-    self.actual_depth[0] += 1;
+    *actual_depth += 1;
 
     for cid in root_id.children(tree) {
-        subtree_size += self.create_record(&cid, tree, postorder_id, record_labels);
+        subtree_size += create_record(
+            &cid,
+            tree,
+            postorder_id,
+            actual_depth,
+            actual_post_order_number,
+            record_labels,
+        );
     }
 
     *postorder_id += 1;
-    self.actual_depth[0] -= 1;
-    self.actual_post_order_number[0] += 1;
+    *actual_depth -= 1;
+    *actual_post_order_number += 1;
 
     let root_label = tree.get(*root_id).unwrap().get();
-    let node_struct_vec = StructuralVec {
+    let node_struct_vec = StructuralVector {
         postorder_id: *postorder_id,
-        label_id: *root_label,
-        mapping_regions: [
-            (self.actual_post_order_number[0] - subtree_size),
-            self.actual_depth[0],
-            (self.tree_size_by_split_id[0]
-                - (self.actual_post_order_number[0] + self.actual_depth[0])),
+        regions: [
+            (*actual_post_order_number - subtree_size),
+            *actual_depth,
+            (tree.count() as StructuralRegionType - (*actual_post_order_number + *actual_depth)),
             (subtree_size - 1),
         ],
     };
 
-    if let Some(se) = record_labels.get_mut(root_label) {
-        se.base.weight += 1;
-        se.struct_vec.push(node_struct_vec);
+    if let Some(label_nodes) = record_labels.get_mut(root_label) {
+        label_nodes.push(node_struct_vec);
     } else {
-        let mut se = LabelSetElement {
-            base: LabelSetElementBase {
-                id: *tree.get(*root_id).unwrap().get(),
-                weight: 1,
-                ..LabelSetElementBase::default()
-            },
-            ..LabelSetElement::default()
-        };
-        se.struct_vec.push(node_struct_vec);
-        record_labels.insert(*root_label, se);
+        record_labels.insert(*root_label, vec![node_struct_vec]);
     }
     subtree_size
 }
