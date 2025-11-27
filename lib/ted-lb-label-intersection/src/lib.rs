@@ -100,10 +100,7 @@ fn preprocess_tree(
 pub struct LabelIntersectionFactory;
 
 impl AlgorithmFactory for LabelIntersectionFactory {
-    fn create_algorithm(&self, algo_type: ted_base::AlgorithmType) -> impl LowerBoundMethod {
-        match algo_type {
-            ted_base::AlgorithmType::LabelIntersection => LabelIntersectionAlgorithm,
-            _ => panic!("Unsupported algorithm type for LabelIntersectionFactory"),
-        }
+    fn create_algorithm() -> impl LowerBoundMethod {
+        LabelIntersectionAlgorithm
     }
 }

@@ -1,0 +1,8 @@
+[package]
+name = "ted-search-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap = { version = "4.5.53", features = ["derive"] }
+ted-search = { path = "../../lib/ted-search", version = "0.1.0" }

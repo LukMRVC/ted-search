@@ -617,8 +617,7 @@ pub fn bounded_string_edit_distance_with_structure(
                     break ((i - 1) + k as i32 - threshold) as usize;
                 }
 
-                if (next_row.get_unchecked(condition_diagonal as usize).0 < s1len)
-                    && i > threshold
+                if (next_row.get_unchecked(condition_diagonal as usize).0 < s1len) && i > threshold
                 {
                     break usize::MAX;
                 }
@@ -632,11 +631,8 @@ pub fn bounded_string_edit_distance_with_structure(
 pub struct StringStructFactory;
 
 impl AlgorithmFactory for StringStructFactory {
-    fn create_algorithm(&self, algo_type: ted_base::AlgorithmType) -> impl LowerBoundMethod {
-        match algo_type {
-            ted_base::AlgorithmType::StringStruct => StringStructAlgorithm,
-            _ => panic!("Unsupported algorithm type for SedFactory"),
-        }
+    fn create_algorithm() -> impl LowerBoundMethod {
+        StringStructAlgorithm
     }
 }
 

@@ -231,11 +231,8 @@ fn traverse(nid: NodeId, tree: &ParsedTree, pre: &mut Vec<i32>, post: &mut Vec<i
 pub struct SedFactory;
 
 impl AlgorithmFactory for SedFactory {
-    fn create_algorithm(&self, algo_type: ted_base::AlgorithmType) -> impl LowerBoundMethod {
-        match algo_type {
-            ted_base::AlgorithmType::Sed => SedAlgorithm,
-            _ => panic!("Unsupported algorithm type for SedFactory"),
-        }
+    fn create_algorithm() -> impl LowerBoundMethod {
+        SedAlgorithm
     }
 }
 

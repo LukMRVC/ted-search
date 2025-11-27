@@ -138,10 +138,7 @@ impl BinaryBranchLowerBoundMethod {
 pub struct BinaryBranchLowerBoundFactory;
 
 impl AlgorithmFactory for BinaryBranchLowerBoundFactory {
-    fn create_algorithm(&self, algo_type: ted_base::AlgorithmType) -> impl LowerBoundMethod {
-        match algo_type {
-            ted_base::AlgorithmType::BinaryBranch => BinaryBranchLowerBoundMethod::default(),
-            _ => panic!("Unsupported algorithm type for StructuralLowerBoundFactory"),
-        }
+    fn create_algorithm() -> impl LowerBoundMethod {
+        BinaryBranchLowerBoundMethod::default()
     }
 }

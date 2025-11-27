@@ -215,11 +215,8 @@ pub fn ted(s1: &StructuralLabelMap, s2: &StructuralLabelMap, k: usize) -> usize 
 pub struct StructuralLowerBoundFactory;
 
 impl AlgorithmFactory for StructuralLowerBoundFactory {
-    fn create_algorithm(&self, algo_type: ted_base::AlgorithmType) -> impl LowerBoundMethod {
-        match algo_type {
-            ted_base::AlgorithmType::Structural => StructuralLowerBoundMethod {},
-            _ => panic!("Unsupported algorithm type for StructuralLowerBoundFactory"),
-        }
+    fn create_algorithm() -> impl LowerBoundMethod {
+        StructuralLowerBoundMethod
     }
 }
 
