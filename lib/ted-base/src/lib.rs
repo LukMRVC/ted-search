@@ -61,7 +61,6 @@ pub enum AlgorithmType {
     Structural,
     BinaryBranch,
     LabelIntersection,
-    Histogram,
 }
 
 /// Factory trait for creating algorithm instances

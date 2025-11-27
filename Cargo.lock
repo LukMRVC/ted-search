@@ -201,6 +201,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ted-lb-bib"
+version = "0.1.0"
+dependencies = [
+ "indextree",
+ "itertools",
+ "rustc-hash",
+ "ted-base",
+ "tree-parsing",
+]
+
+[[package]]
 name = "ted-lb-label-intersection"
 version = "0.1.0"
 dependencies = [
