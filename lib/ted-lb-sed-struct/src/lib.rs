@@ -45,29 +45,29 @@ impl StringStructEDIndex {
             PreRevPre => StringStructEDIndex::PreRevPre {
                 preorder: Vec::with_capacity(tree_size),
                 reversed_preorder: Vec::with_capacity(tree_size),
-                tree_size: tree_size,
+                tree_size,
             },
             PostRevPost => StringStructEDIndex::PostRevPost {
                 postorder: Vec::with_capacity(tree_size),
                 reversed_postorder: Vec::with_capacity(tree_size),
-                tree_size: tree_size,
+                tree_size,
             },
             PostRevPre => StringStructEDIndex::PostRevPre {
                 postorder: Vec::with_capacity(tree_size),
                 reversed_preorder: Vec::with_capacity(tree_size),
-                tree_size: tree_size,
+                tree_size,
             },
             PreRevPost => StringStructEDIndex::PreRevPost {
                 preorder: Vec::with_capacity(tree_size),
                 reversed_postorder: Vec::with_capacity(tree_size),
-                tree_size: tree_size,
+                tree_size,
             },
             AllTraversals => StringStructEDIndex::AllTraversals {
                 preorder: Vec::with_capacity(tree_size),
                 postorder: Vec::with_capacity(tree_size),
                 reversed_preorder: Vec::with_capacity(tree_size),
                 reversed_postorder: Vec::with_capacity(tree_size),
-                tree_size: tree_size,
+                tree_size,
             },
         }
     }
@@ -612,14 +612,12 @@ pub fn bounded_string_edit_distance_with_structure(
         // to determine the distance is > threshold, or we've reached the
         // threshold itself - this follows the "cutoff" principle in the paper
         unsafe {
-            if !(next_row.get_unchecked(condition_diagonal as usize).0 < s1len as i32
-                && i <= threshold)
-            {
+            if !(next_row.get_unchecked(condition_diagonal as usize).0 < s1len && i <= threshold) {
                 if threshold < k as i32 {
                     break ((i - 1) + k as i32 - threshold) as usize;
                 }
 
-                if !(next_row.get_unchecked(condition_diagonal as usize).0 >= s1len as i32)
+                if (next_row.get_unchecked(condition_diagonal as usize).0 < s1len)
                     && i > threshold
                 {
                     break usize::MAX;

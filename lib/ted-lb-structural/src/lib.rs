@@ -6,15 +6,6 @@ use tree_parsing::LabelId;
 
 pub struct StructuralLowerBoundMethod;
 
-// preceding
-const REGION_LEFT_IDX: usize = 0;
-/// ancestors
-const REGION_ANC_IDX: usize = 1;
-// following
-const REGION_RIGHT_IDX: usize = 2;
-/// descendants
-const REGION_DESC_IDX: usize = 3;
-
 type StructuralRegionType = i32;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -53,7 +44,7 @@ impl LowerBoundMethod for StructuralLowerBoundMethod {
     fn preprocess(
         &mut self,
         data: &[tree_parsing::ParsedTree],
-        params: Self::PreprocessParams,
+        _params: Self::PreprocessParams,
     ) -> Result<Vec<Self::PreprocessedDataType>, String> {
         // TODO: Implement preprocessing to create StructuralLabelMap for each tree
         // contains structural vectors for the current tree
@@ -89,16 +80,16 @@ impl LowerBoundMethod for StructuralLowerBoundMethod {
     }
 
     fn query_index(
-        query: &Self::PreprocessedDataType,
-        index: &Self::IndexType,
-        threshold: usize,
+        _query: &Self::PreprocessedDataType,
+        _index: &Self::IndexType,
+        _threshold: usize,
     ) -> Vec<usize> {
         unimplemented!("Index querying not implemented for StructuralLowerBoundMethod");
     }
 
     fn build_index(
-        data: &[Self::PreprocessedDataType],
-        params: &Self::IndexParams,
+        _data: &[Self::PreprocessedDataType],
+        _params: &Self::IndexParams,
     ) -> Result<Self::IndexType, String> {
         unimplemented!("Index building not implemented for StructuralLowerBoundMethod");
     }
@@ -197,7 +188,7 @@ pub fn ted(s1: &StructuralLabelMap, s2: &StructuralLabelMap, k: usize) -> usize 
             };
 
             for n1 in s1c.iter() {
-                let k_window = n1.postorder_id as i32 - k as i32;
+                let k_window = n1.postorder_id as i32 - k;
                 let k_window = std::cmp::max(k_window, 0) as usize;
 
                 // apply postorder filter
@@ -205,7 +196,7 @@ pub fn ted(s1: &StructuralLabelMap, s2: &StructuralLabelMap, k: usize) -> usize 
                 for n2 in s2c
                     .iter()
                     .skip_while(|n2| k_window < s2c.len() && n2.postorder_id < k_window)
-                    .take_while(|n2| !(n2.postorder_id > k as usize + n1.postorder_id))
+                    .take_while(|n2| n2.postorder_id <= k as usize + n1.postorder_id)
                 {
                     let l1_region_distance = svec_l1_strict(&n1.regions, &n2.regions);
 
