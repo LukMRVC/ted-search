@@ -17,6 +17,7 @@ const REGION_DESC_IDX: usize = 3;
 
 type StructuralRegionType = i32;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StructuralVector {
     /// Vector of number of nodes to the left (preceding), ancestors, nodes to right (following) and descendants
     pub regions: [StructuralRegionType; 4],
@@ -25,6 +26,7 @@ pub struct StructuralVector {
 
 type LabelMap = FxHashMap<LabelId, Vec<StructuralVector>>;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StructuralLabelMap {
     tree_size: usize,
     label_map: LabelMap,
@@ -45,7 +47,7 @@ impl LowerBoundMethod for StructuralLowerBoundMethod {
         data: &Self::PreprocessedDataType,
         threshold: usize,
     ) -> usize {
-        unimplemented!("Lower bound computation not implemented for StructuralLowerBoundMethod");
+        ted(query, data, threshold)
     }
 
     fn preprocess(
@@ -150,6 +152,75 @@ fn create_record(
     subtree_size
 }
 
+#[inline(always)]
+fn svec_l1_strict(n1: &[StructuralRegionType; 4], n2: &[StructuralRegionType; 4]) -> i32 {
+    n1.iter()
+        .zip_eq(n2.iter())
+        .fold(0, |acc, (a, b)| acc + (a - b).abs())
+}
+
+/// Given two sets
+pub fn ted(s1: &StructuralLabelMap, s2: &StructuralLabelMap, k: usize) -> usize {
+    use std::cmp::max;
+    // simple size difference
+    let bigger = max(s1.tree_size, s2.tree_size);
+    if s1.tree_size.abs_diff(s2.tree_size) > k {
+        return k + 1;
+    }
+    let k = k as i32;
+
+    let mut overlap = 0;
+    for (lblid, set1) in s1.label_map.iter() {
+        if let Some(set2) = s2.label_map.get(lblid) {
+            if set1.len() == 1 && set2.len() == 1 {
+                let l1_region_distance = svec_l1_strict(
+                    &set1
+                        .first()
+                        .expect("Failed to get first vector element!")
+                        .regions,
+                    &set2
+                        .first()
+                        .expect("Failed to get first vector element!")
+                        .regions,
+                );
+
+                if l1_region_distance <= k {
+                    overlap += 1;
+                }
+                continue;
+            }
+
+            let (s1c, s2c) = if set2.len() < set1.len() {
+                (set2, set1)
+            } else {
+                (set1, set2)
+            };
+
+            for n1 in s1c.iter() {
+                let k_window = n1.postorder_id as i32 - k as i32;
+                let k_window = std::cmp::max(k_window, 0) as usize;
+
+                // apply postorder filter
+                // let s2clen = s2c.struct_vec.len();
+                for n2 in s2c
+                    .iter()
+                    .skip_while(|n2| k_window < s2c.len() && n2.postorder_id < k_window)
+                    .take_while(|n2| !(n2.postorder_id > k as usize + n1.postorder_id))
+                {
+                    let l1_region_distance = svec_l1_strict(&n1.regions, &n2.regions);
+
+                    if l1_region_distance <= k {
+                        overlap += 1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    bigger - overlap
+}
+
 pub struct StructuralLowerBoundFactory;
 
 impl AlgorithmFactory for StructuralLowerBoundFactory {
@@ -158,5 +229,131 @@ impl AlgorithmFactory for StructuralLowerBoundFactory {
             ted_base::AlgorithmType::Structural => StructuralLowerBoundMethod {},
             _ => panic!("Unsupported algorithm type for StructuralLowerBoundFactory"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tree_parsing::{parse_single, LabelDict};
+
+    #[test]
+    fn test_label_set_converting() {
+        let t1input = "{a{b{b{a}}{a}}}".to_owned();
+        let mut label_dict = LabelDict::default();
+        let t1 = parse_single(t1input, &mut label_dict);
+
+        let mut lb_method = StructuralLowerBoundMethod {};
+
+        let preprocessed = lb_method
+            .preprocess(&[t1], ())
+            .expect("unable to preprocess tree");
+
+        let single_tree = preprocessed.first().unwrap();
+
+        let structural_tree = LabelMap::from_iter([
+            (
+                1,
+                vec![
+                    StructuralVector {
+                        regions: [0, 3, 1, 0],
+                        postorder_id: 1,
+                    },
+                    StructuralVector {
+                        regions: [2, 2, 0, 0],
+                        postorder_id: 3,
+                    },
+                    StructuralVector {
+                        regions: [0, 0, 0, 4],
+                        postorder_id: 5,
+                    },
+                ],
+            ),
+            (
+                2,
+                vec![
+                    StructuralVector {
+                        regions: [0, 2, 1, 1],
+                        postorder_id: 2,
+                    },
+                    StructuralVector {
+                        regions: [0, 1, 0, 3],
+                        postorder_id: 4,
+                    },
+                ],
+            ),
+        ]);
+
+        assert_eq!(single_tree.label_map, structural_tree);
+    }
+
+    #[test]
+    fn test_label_set_converting_second() {
+        let t1input = "{a{b{a}{b{a}}}}".to_owned();
+
+        let mut label_dict = LabelDict::default();
+        let t1 = parse_single(t1input, &mut label_dict);
+
+        let mut lb_method = StructuralLowerBoundMethod {};
+
+        let preprocessed = lb_method
+            .preprocess(&[t1], ())
+            .expect("unable to preprocess tree");
+
+        let single_tree = preprocessed.first().unwrap();
+
+        let structural_tree = LabelMap::from_iter([
+            (
+                1,
+                vec![
+                    StructuralVector {
+                        regions: [0, 2, 2, 0],
+                        postorder_id: 1,
+                    },
+                    StructuralVector {
+                        regions: [1, 3, 0, 0],
+                        postorder_id: 2,
+                    },
+                    StructuralVector {
+                        regions: [0, 0, 0, 4],
+                        postorder_id: 5,
+                    },
+                ],
+            ),
+            (
+                2,
+                vec![
+                    StructuralVector {
+                        regions: [1, 2, 0, 1],
+                        postorder_id: 3,
+                    },
+                    StructuralVector {
+                        regions: [0, 1, 0, 3],
+                        postorder_id: 4,
+                    },
+                ],
+            ),
+        ]);
+
+        assert_eq!(single_tree.label_map, structural_tree);
+        // assert_eq!(set_tuple.label_map.get(&2).unwrap(), &lse_for_b);
+    }
+
+    #[test]
+    fn test_structural_distance() {
+        let t1input = "{a{b}{a{b}{c}{a}}{b}}".to_owned();
+        let t2input = "{a{c}{b{a{a}{b}{c}}}}".to_owned();
+        let mut label_dict = LabelDict::default();
+        let t1 = parse_single(t1input, &mut label_dict);
+        let t2 = parse_single(t2input, &mut label_dict);
+        let v = vec![t1, t2];
+        let mut lb_method = StructuralLowerBoundMethod {};
+        let preprocessed = lb_method
+            .preprocess(&v, ())
+            .expect("unable to preprocess tree");
+
+        let lb = StructuralLowerBoundMethod::lower_bound(&preprocessed[0], &preprocessed[1], 4);
+
+        assert_eq!(lb, 2);
     }
 }
