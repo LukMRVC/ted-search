@@ -4,7 +4,7 @@ use rustc_hash::FxHashMap;
 use ted_base::{AlgorithmFactory, LowerBoundMethod};
 use tree_parsing::LabelId;
 
-pub struct StructuralLowerBoundMethod;
+pub struct StructuralAlgorithm;
 
 type StructuralRegionType = i32;
 
@@ -23,7 +23,7 @@ pub struct StructuralLabelMap {
     label_map: LabelMap,
 }
 
-impl LowerBoundMethod for StructuralLowerBoundMethod {
+impl LowerBoundMethod for StructuralAlgorithm {
     const NAME: &'static str = "Structural";
     // This method does support index-based computations, but it's not implemented yet.
     const SUPPORTS_INDEX: bool = false;
@@ -212,11 +212,12 @@ pub fn ted(s1: &StructuralLabelMap, s2: &StructuralLabelMap, k: usize) -> usize 
     bigger - overlap
 }
 
-pub struct StructuralLowerBoundFactory;
+pub struct StructuralFactory;
 
-impl AlgorithmFactory for StructuralLowerBoundFactory {
-    fn create_algorithm() -> impl LowerBoundMethod {
-        StructuralLowerBoundMethod
+impl AlgorithmFactory for StructuralFactory {
+    type AlgorithmType = StructuralAlgorithm;
+    fn create_algorithm() -> Self::AlgorithmType {
+        StructuralAlgorithm
     }
 }
 
@@ -231,7 +232,7 @@ mod tests {
         let mut label_dict = LabelDict::default();
         let t1 = parse_single(t1input, &mut label_dict);
 
-        let mut lb_method = StructuralLowerBoundMethod {};
+        let mut lb_method = StructuralAlgorithm {};
 
         let preprocessed = lb_method
             .preprocess(&[t1], ())
@@ -282,7 +283,7 @@ mod tests {
         let mut label_dict = LabelDict::default();
         let t1 = parse_single(t1input, &mut label_dict);
 
-        let mut lb_method = StructuralLowerBoundMethod {};
+        let mut lb_method = StructuralAlgorithm {};
 
         let preprocessed = lb_method
             .preprocess(&[t1], ())
@@ -335,12 +336,12 @@ mod tests {
         let t1 = parse_single(t1input, &mut label_dict);
         let t2 = parse_single(t2input, &mut label_dict);
         let v = vec![t1, t2];
-        let mut lb_method = StructuralLowerBoundMethod {};
+        let mut lb_method = StructuralAlgorithm {};
         let preprocessed = lb_method
             .preprocess(&v, ())
             .expect("unable to preprocess tree");
 
-        let lb = StructuralLowerBoundMethod::lower_bound(&preprocessed[0], &preprocessed[1], 4);
+        let lb = StructuralAlgorithm::lower_bound(&preprocessed[0], &preprocessed[1], 4);
 
         assert_eq!(lb, 2);
     }

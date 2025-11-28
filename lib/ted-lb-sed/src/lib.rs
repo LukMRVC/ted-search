@@ -231,7 +231,8 @@ fn traverse(nid: NodeId, tree: &ParsedTree, pre: &mut Vec<i32>, post: &mut Vec<i
 pub struct SedFactory;
 
 impl AlgorithmFactory for SedFactory {
-    fn create_algorithm() -> impl LowerBoundMethod {
+    type AlgorithmType = SedAlgorithm;
+    fn create_algorithm() -> Self::AlgorithmType {
         SedAlgorithm
     }
 }

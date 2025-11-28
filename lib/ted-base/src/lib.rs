@@ -65,5 +65,6 @@ pub enum AlgorithmType {
 
 /// Factory trait for creating algorithm instances
 pub trait AlgorithmFactory {
-    fn create_algorithm() -> impl LowerBoundMethod;
+    type AlgorithmType: LowerBoundMethod;
+    fn create_algorithm() -> Self::AlgorithmType;
 }

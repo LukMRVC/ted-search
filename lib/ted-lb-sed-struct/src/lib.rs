@@ -631,7 +631,8 @@ pub fn bounded_string_edit_distance_with_structure(
 pub struct StringStructFactory;
 
 impl AlgorithmFactory for StringStructFactory {
-    fn create_algorithm() -> impl LowerBoundMethod {
+    type AlgorithmType = StringStructAlgorithm;
+    fn create_algorithm() -> Self::AlgorithmType {
         StringStructAlgorithm
     }
 }

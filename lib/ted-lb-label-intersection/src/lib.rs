@@ -100,7 +100,8 @@ fn preprocess_tree(
 pub struct LabelIntersectionFactory;
 
 impl AlgorithmFactory for LabelIntersectionFactory {
-    fn create_algorithm() -> impl LowerBoundMethod {
+    type AlgorithmType = LabelIntersectionAlgorithm;
+    fn create_algorithm() -> Self::AlgorithmType {
         LabelIntersectionAlgorithm
     }
 }

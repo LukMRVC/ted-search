@@ -3,8 +3,6 @@ use std::path::PathBuf;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum LowerBoundMethods {
-    /// Histogram lower bound
-    Hist,
     /// Label intersection lower bound
     Lblint,
     /// String edit distance lower bound
@@ -13,8 +11,6 @@ pub enum LowerBoundMethods {
     SEDStruct,
     /// Structural filter lower bound
     Structural,
-    /// Structural variant filter lower bound
-    StructuralVariant,
     /// Binary branch lower bound
     Bib,
 }

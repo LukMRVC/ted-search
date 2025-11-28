@@ -16,12 +16,12 @@ pub struct BinaryBranchTree {
 type BBTuple = (LabelId, Option<LabelId>, Option<LabelId>);
 
 #[derive(Default, Debug)]
-pub struct BinaryBranchLowerBoundMethod {
+pub struct BinaryBranchAlgorithm {
     bb_id: i32,
     binary_branch_id_map: FxHashMap<BBTuple, i32>,
 }
 
-impl LowerBoundMethod for BinaryBranchLowerBoundMethod {
+impl LowerBoundMethod for BinaryBranchAlgorithm {
     const NAME: &'static str = "BinaryBranch";
     const SUPPORTS_INDEX: bool = false;
 
@@ -91,7 +91,7 @@ impl LowerBoundMethod for BinaryBranchLowerBoundMethod {
     }
 }
 
-impl BinaryBranchLowerBoundMethod {
+impl BinaryBranchAlgorithm {
     fn create_vector(
         &mut self,
         root_id: &NodeId,
@@ -135,10 +135,11 @@ impl BinaryBranchLowerBoundMethod {
     }
 }
 
-pub struct BinaryBranchLowerBoundFactory;
+pub struct BinaryBranchFactory;
 
-impl AlgorithmFactory for BinaryBranchLowerBoundFactory {
-    fn create_algorithm() -> impl LowerBoundMethod {
-        BinaryBranchLowerBoundMethod::default()
+impl AlgorithmFactory for BinaryBranchFactory {
+    type AlgorithmType = BinaryBranchAlgorithm;
+    fn create_algorithm() -> Self::AlgorithmType {
+        BinaryBranchAlgorithm::default()
     }
 }
