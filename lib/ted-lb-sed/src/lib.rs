@@ -48,6 +48,7 @@ impl LowerBoundMethod for SedAlgorithm {
     }
 
     fn lower_bound(
+        &self,
         query: &Self::PreprocessedDataType,
         data: &Self::PreprocessedDataType,
         threshold: usize,
@@ -56,6 +57,7 @@ impl LowerBoundMethod for SedAlgorithm {
     }
 
     fn build_index(
+        &self,
         data: &[Self::PreprocessedDataType],
         params: &IndexParams,
     ) -> Result<Self::IndexType, String> {
@@ -72,6 +74,7 @@ impl LowerBoundMethod for SedAlgorithm {
     ///
     /// The query must be cloned because it will be modified when querying the index.
     fn query_index(
+        &self,
         query: &Self::PreprocessedDataType,
         index: &Self::IndexType,
         threshold: usize,

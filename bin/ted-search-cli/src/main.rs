@@ -1,7 +1,7 @@
 use clap::Parser;
 use ted_search::{
-    create_algorithm, AlgorithmFactory, BinaryBranchFactory, LabelIntersectionFactory, SedFactory,
-    StringStructFactory, StructuralFactory,
+    create_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory, LowerBoundMethod,
+    SedFactory, StringStructFactory, StructuralFactory,
 };
 
 mod cli;

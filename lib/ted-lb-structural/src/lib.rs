@@ -34,6 +34,7 @@ impl LowerBoundMethod for StructuralAlgorithm {
     type PreprocessParams = ();
 
     fn lower_bound(
+        &self,
         query: &Self::PreprocessedDataType,
         data: &Self::PreprocessedDataType,
         threshold: usize,
@@ -80,6 +81,7 @@ impl LowerBoundMethod for StructuralAlgorithm {
     }
 
     fn query_index(
+        &self,
         _query: &Self::PreprocessedDataType,
         _index: &Self::IndexType,
         _threshold: usize,
@@ -88,6 +90,7 @@ impl LowerBoundMethod for StructuralAlgorithm {
     }
 
     fn build_index(
+        &self,
         _data: &[Self::PreprocessedDataType],
         _params: &Self::IndexParams,
     ) -> Result<Self::IndexType, String> {
@@ -341,7 +344,7 @@ mod tests {
             .preprocess(&v, ())
             .expect("unable to preprocess tree");
 
-        let lb = StructuralAlgorithm::lower_bound(&preprocessed[0], &preprocessed[1], 4);
+        let lb = lb_method.lower_bound(&preprocessed[0], &preprocessed[1], 4);
 
         assert_eq!(lb, 2);
     }

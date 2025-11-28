@@ -34,12 +34,14 @@ pub trait LowerBoundMethod {
     /// Compute the lower bound for 2 preprocessed trees
     /// and a given threshold
     fn lower_bound(
+        &self,
         query: &Self::PreprocessedDataType,
         data: &Self::PreprocessedDataType,
         threshold: usize,
     ) -> usize;
 
     fn build_index(
+        &self,
         data: &[Self::PreprocessedDataType],
         params: &Self::IndexParams,
     ) -> Result<Self::IndexType, String>;
@@ -47,6 +49,7 @@ pub trait LowerBoundMethod {
     /// Query the index with the preprocessed query data
     /// and return a list of candidate indices
     fn query_index(
+        &self,
         query: &Self::PreprocessedDataType,
         index: &Self::IndexType,
         threshold: usize,

@@ -30,6 +30,7 @@ impl LowerBoundMethod for LabelIntersectionAlgorithm {
     }
 
     fn lower_bound(
+        &self,
         query: &Self::PreprocessedDataType,
         data: &Self::PreprocessedDataType,
         threshold: usize,
@@ -56,6 +57,7 @@ impl LowerBoundMethod for LabelIntersectionAlgorithm {
     }
 
     fn build_index(
+        &self,
         _data: &[Self::PreprocessedDataType],
         _params: &Self::IndexParams,
     ) -> Result<Self::IndexType, String> {
@@ -63,6 +65,7 @@ impl LowerBoundMethod for LabelIntersectionAlgorithm {
     }
 
     fn query_index(
+        &self,
         _query: &Self::PreprocessedDataType,
         _index: &Self::IndexType,
         _threshold: usize,
