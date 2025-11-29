@@ -1,5 +1,9 @@
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
+use ted_search::{
+    create_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory, SedFactory,
+    StringStructFactory, StructuralFactory,
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum LowerBoundMethods {
@@ -13,6 +17,18 @@ pub enum LowerBoundMethods {
     Structural,
     /// Binary branch lower bound
     Bib,
+}
+
+impl From<LowerBoundMethods> for Algorithm {
+    fn from(method: LowerBoundMethods) -> Self {
+        match method {
+            LowerBoundMethods::Lblint => create_algorithm::<LabelIntersectionFactory>(),
+            LowerBoundMethods::Sed => create_algorithm::<SedFactory>(),
+            LowerBoundMethods::SEDStruct => create_algorithm::<StringStructFactory>(),
+            LowerBoundMethods::Structural => create_algorithm::<StructuralFactory>(),
+            LowerBoundMethods::Bib => create_algorithm::<BinaryBranchFactory>(),
+        }
+    }
 }
 
 #[derive(Parser)]

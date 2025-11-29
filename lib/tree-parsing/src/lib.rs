@@ -105,13 +105,14 @@ pub fn parse_dataset(
 pub fn parse_queries(
     query_file: &impl AsRef<Path>,
     ld: &mut LabelDict,
+    delimiter: char,
 ) -> Result<Vec<(usize, ParsedTree)>, DatasetParseError> {
     let reader = buf_open_file!(query_file);
     let trees: Vec<(usize, Vec<String>)> = reader
         .lines()
         .filter_map(|l| {
             let l = l.expect("line reading failed!");
-            let (threshold_str, tree) = l.split_once(";")?;
+            let (threshold_str, tree) = l.split_once(delimiter)?;
             Some((threshold_str.parse::<usize>().unwrap(), tree.to_string()))
         })
         .filter_map(|(t, tree)| {

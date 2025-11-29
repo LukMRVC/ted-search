@@ -31,7 +31,6 @@ impl LowerBoundMethod for StructuralAlgorithm {
     type PreprocessedDataType = StructuralLabelMap;
     type IndexType = ();
     type IndexParams = ();
-    type PreprocessParams = ();
 
     fn lower_bound(
         &self,
@@ -43,9 +42,8 @@ impl LowerBoundMethod for StructuralAlgorithm {
     }
 
     fn preprocess(
-        &mut self,
+        &self,
         data: &[tree_parsing::ParsedTree],
-        _params: Self::PreprocessParams,
     ) -> Result<Vec<Self::PreprocessedDataType>, String> {
         // TODO: Implement preprocessing to create StructuralLabelMap for each tree
         // contains structural vectors for the current tree
@@ -238,7 +236,7 @@ mod tests {
         let mut lb_method = StructuralAlgorithm {};
 
         let preprocessed = lb_method
-            .preprocess(&[t1], ())
+            .preprocess(&[t1])
             .expect("unable to preprocess tree");
 
         let single_tree = preprocessed.first().unwrap();
@@ -289,7 +287,7 @@ mod tests {
         let mut lb_method = StructuralAlgorithm {};
 
         let preprocessed = lb_method
-            .preprocess(&[t1], ())
+            .preprocess(&[t1])
             .expect("unable to preprocess tree");
 
         let single_tree = preprocessed.first().unwrap();
@@ -340,9 +338,7 @@ mod tests {
         let t2 = parse_single(t2input, &mut label_dict);
         let v = vec![t1, t2];
         let mut lb_method = StructuralAlgorithm {};
-        let preprocessed = lb_method
-            .preprocess(&v, ())
-            .expect("unable to preprocess tree");
+        let preprocessed = lb_method.preprocess(&v).expect("unable to preprocess tree");
 
         let lb = lb_method.lower_bound(&preprocessed[0], &preprocessed[1], 4);
 

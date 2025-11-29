@@ -19,13 +19,8 @@ impl LowerBoundMethod for LabelIntersectionAlgorithm {
     type PreprocessedDataType = LabelCountMap;
     type IndexType = ();
     type IndexParams = ();
-    type PreprocessParams = ();
 
-    fn preprocess(
-        &mut self,
-        data: &[ParsedTree],
-        _params: Self::PreprocessParams,
-    ) -> Result<Vec<Self::PreprocessedDataType>, String> {
+    fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
         Ok(data.iter().map(preprocess_tree).collect())
     }
 

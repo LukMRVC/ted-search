@@ -37,13 +37,8 @@ impl LowerBoundMethod for SedAlgorithm {
     type PreprocessedDataType = SEDIndex;
     type IndexType = IndexGram;
     type IndexParams = IndexParams;
-    type PreprocessParams = ();
 
-    fn preprocess(
-        &mut self,
-        data: &[ParsedTree],
-        _params: Self::PreprocessParams,
-    ) -> Result<Vec<Self::PreprocessedDataType>, String> {
+    fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
         Ok(data.iter().map(preprocess_tree).collect::<Vec<_>>())
     }
 

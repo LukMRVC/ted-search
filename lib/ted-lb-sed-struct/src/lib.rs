@@ -235,25 +235,22 @@ pub enum TraversalType {
     AllTraversals,
 }
 
-pub struct StringStructAlgorithm;
+pub struct StringStructAlgorithm {
+    traversal_type: TraversalType,
+}
 
 impl LowerBoundMethod for StringStructAlgorithm {
     const NAME: &'static str = "SED-STRUCT";
     const SUPPORTS_INDEX: bool = false;
 
     type PreprocessedDataType = StringStructEDIndex;
-    type PreprocessParams = TraversalType;
     type IndexType = ();
     type IndexParams = ();
 
-    fn preprocess(
-        &mut self,
-        data: &[ParsedTree],
-        params: Self::PreprocessParams,
-    ) -> Result<Vec<Self::PreprocessedDataType>, String> {
+    fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
         Ok(data
             .iter()
-            .map(|t| preprocess_tree(t, &params))
+            .map(|t| preprocess_tree(t, &self.traversal_type))
             .collect::<Vec<_>>())
     }
 
@@ -636,7 +633,9 @@ pub struct StringStructFactory;
 impl AlgorithmFactory for StringStructFactory {
     type AlgorithmType = StringStructAlgorithm;
     fn create_algorithm() -> Self::AlgorithmType {
-        StringStructAlgorithm
+        StringStructAlgorithm {
+            traversal_type: TraversalType::PreRevPre,
+        }
     }
 }
 
@@ -986,9 +985,11 @@ mod tests {
         let mut ld = LabelDict::new();
         let qt = parse_single(t1str, &mut ld);
         let tt = parse_single(t2str, &mut ld);
-        let result = StringStructAlgorithm
-            .preprocess(&[qt.clone(), tt.clone()], TraversalType::AllTraversals)
-            .unwrap();
+        let result = StringStructAlgorithm {
+            traversal_type: TraversalType::AllTraversals,
+        }
+        .preprocess(&[qt.clone(), tt.clone()])
+        .unwrap();
         let [qs, ts, ..] = result.as_slice() else {
             panic!("Expected at least 2 elements");
         };

@@ -4,7 +4,10 @@ use tree_parsing::{LabelId, ParsedTree};
 
 use itertools::Itertools;
 use rustc_hash::FxHashMap;
-use std::cmp::min;
+use std::{
+    cell::{Cell, RefCell},
+    cmp::min,
+};
 
 pub type BinaryBranchVector = FxHashMap<i32, i32>;
 pub struct BinaryBranchTree {
@@ -17,8 +20,8 @@ type BBTuple = (LabelId, Option<LabelId>, Option<LabelId>);
 
 #[derive(Default, Debug)]
 pub struct BinaryBranchAlgorithm {
-    bb_id: i32,
-    binary_branch_id_map: FxHashMap<BBTuple, i32>,
+    bb_id: Cell<i32>,
+    binary_branch_id_map: RefCell<FxHashMap<BBTuple, i32>>,
 }
 
 impl LowerBoundMethod for BinaryBranchAlgorithm {
@@ -26,18 +29,14 @@ impl LowerBoundMethod for BinaryBranchAlgorithm {
     const SUPPORTS_INDEX: bool = false;
 
     type PreprocessedDataType = BinaryBranchTree;
-    type PreprocessParams = ();
     type IndexType = ();
     type IndexParams = ();
 
-    fn preprocess(
-        &mut self,
-        data: &[ParsedTree],
-        _params: Self::PreprocessParams,
-    ) -> Result<Vec<Self::PreprocessedDataType>, String> {
+    fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
         // Placeholder implementation
         Ok(data
             .iter()
+            // TODO: Use interior mutability to avoid cloning self
             .map(|tree| {
                 let Some(root) = tree.iter().next() else {
                     panic!("tree is empty");
@@ -96,7 +95,7 @@ impl LowerBoundMethod for BinaryBranchAlgorithm {
 
 impl BinaryBranchAlgorithm {
     fn create_vector(
-        &mut self,
+        &self,
         root_id: &NodeId,
         tree: &ParsedTree,
         right_sibling_label: Option<LabelId>,
@@ -114,13 +113,11 @@ impl BinaryBranchAlgorithm {
             right_sibling_label,
         );
 
-        let bb_id = self
-            .binary_branch_id_map
-            .entry(bb_tuple)
-            .or_insert_with(|| {
-                self.bb_id += 1;
-                self.bb_id
-            });
+        let mut binding = self.binary_branch_id_map.borrow_mut();
+        let bb_id = binding.entry(bb_tuple).or_insert_with(|| {
+            self.bb_id.set(self.bb_id.get() + 1);
+            self.bb_id.get()
+        });
 
         branch_vector
             .entry(*bb_id)

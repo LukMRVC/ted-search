@@ -50,6 +50,53 @@ impl From<BinaryBranchAlgorithm> for Algorithm {
     }
 }
 
+fn run_search_pipeline<T: LowerBoundMethod>(
+    algo_instance: &T,
+    data: &[ParsedTree],
+    queries: &[(usize, ParsedTree)],
+) -> Vec<Vec<usize>> {
+    let preprocessed = algo_instance
+        .preprocess(data)
+        .expect("Unable to preprocess data");
+    let preprocessed_queries = queries
+        .iter()
+        .map(|(k, query)| {
+            let mut pq = algo_instance
+                .preprocess(&[query.clone()])
+                .expect("Unable to preprocess query");
+            let pq: <T as LowerBoundMethod>::PreprocessedDataType = pq.remove(0);
+            (k.to_owned(), pq)
+        })
+        .collect::<Vec<_>>();
+
+    let mut results = Vec::new();
+
+    for (k, query) in preprocessed_queries {
+        let mut result = Vec::new();
+        for (i, data_tree) in preprocessed.iter().enumerate() {
+            let lb = algo_instance.lower_bound(&query, data_tree, k);
+            if lb <= k {
+                result.push(i);
+            }
+        }
+        results.push(result);
+    }
+    results
+}
+
+impl Algorithm {
+    /// Returns the indices of the data trees that are within the given threshold of each query tree.
+    pub fn search(&self, data: &[ParsedTree], queries: &[(usize, ParsedTree)]) -> Vec<Vec<usize>> {
+        match self {
+            Algorithm::LabelIntersection(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::Sed(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::StringStruct(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::Structural(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::BinaryBranch(algo) => run_search_pipeline(algo, data, queries),
+        }
+    }
+}
+
 pub fn create_algorithm<F: AlgorithmFactory>() -> Algorithm
 where
     // We can now name the concrete type returned by the factory!
