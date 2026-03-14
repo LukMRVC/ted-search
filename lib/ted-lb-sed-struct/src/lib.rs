@@ -5,8 +5,8 @@ use tree_parsing::{LabelId, ParsedTree};
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TraversalCharacter {
     pub char: LabelId,
-    pub preorder_following_postorder_preceding: i32,
-    pub preorder_descendant_postorder_ancestor: i32,
+    pub sum: i32,
+    pub diff: i32,
 }
 
 #[macro_export]
@@ -186,15 +186,15 @@ impl StringStructEDIndex {
         match self {
             StringStructEDIndex::PreRevPre { preorder, .. } => {
                 let element = preorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = following;
-                element.preorder_descendant_postorder_ancestor = descendant;
+                element.sum = following + descendant;
+                element.diff = descendant - following;
             }
             StringStructEDIndex::PostRevPost {
                 reversed_postorder, ..
             } => {
                 let element = reversed_postorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = preceding;
-                element.preorder_descendant_postorder_ancestor = ancestor;
+                element.sum = preceding + ancestor;
+                element.diff = ancestor - preceding;
             }
             StringStructEDIndex::PostRevPre { .. } => {}
             StringStructEDIndex::PreRevPost {
@@ -203,12 +203,12 @@ impl StringStructEDIndex {
                 ..
             } => {
                 let element = preorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = following;
-                element.preorder_descendant_postorder_ancestor = descendant;
+                element.sum = following + descendant;
+                element.diff = descendant - following;
 
                 let element = reversed_postorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = preceding;
-                element.preorder_descendant_postorder_ancestor = ancestor;
+                element.sum = preceding + ancestor;
+                element.diff = ancestor - preceding;
             }
             StringStructEDIndex::AllTraversals {
                 preorder,
@@ -216,12 +216,12 @@ impl StringStructEDIndex {
                 ..
             } => {
                 let element = preorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = following;
-                element.preorder_descendant_postorder_ancestor = descendant;
+                element.sum = following + descendant;
+                element.diff = descendant - following;
 
                 let element = reversed_postorder.get_mut(idx).unwrap();
-                element.preorder_following_postorder_preceding = preceding;
-                element.preorder_descendant_postorder_ancestor = ancestor;
+                element.sum = preceding + ancestor;
+                element.diff = ancestor - preceding;
             }
         }
     }
@@ -319,8 +319,8 @@ fn traverse_with_info(
     let label = tree.get(nid).unwrap().get();
     index.push_pre_data(TraversalCharacter {
         char: *label,
-        preorder_following_postorder_preceding: 0,
-        preorder_descendant_postorder_ancestor: 0,
+        sum: 0,
+        diff: 0,
     });
 
     let pre_idx = index.get_pre_len() - 1;
@@ -339,8 +339,8 @@ fn traverse_with_info(
 
     index.push_post_data(TraversalCharacter {
         char: *label,
-        preorder_following_postorder_preceding: following as i32,
-        preorder_descendant_postorder_ancestor: *depth as i32,
+        sum: following as i32 + *depth as i32,
+        diff: following as i32 - *depth as i32,
     });
 
     index.set_pre_data(
@@ -439,7 +439,6 @@ pub fn bounded_string_edit_distance_with_structure(
     s2: &[TraversalCharacter],
     k: usize,
 ) -> usize {
-    // TODO: Handle cases, where the threshold k is bigger than both s1 and s2 lengths
     use std::cmp::{max, min};
     // assumes size of s2 is bigger or equal than s1
     let s1len = s1.len() as i32;
@@ -451,66 +450,88 @@ pub fn bounded_string_edit_distance_with_structure(
     // zero_k represents the initial diagonal (0th/main diagonal of the SED matrix) in the edit distance matrix
     // The shift by 1 and addition of 2 ensures sufficient buffer space
     // as described in the Berghel & Roach paper
-    let zero_k: i32 = ((if s1len < threshold { s1len } else { threshold }) >> 1) + 2;
+    let zero_k: i32 = threshold + 1;
 
     // Calculate array length needed to store diagonal values
-    let arr_len = size_diff + (zero_k) * 2 + 2;
+    let array_size = (2 * threshold + 3) as usize;
 
     // Instead of storing the full DP matrix, Ukkonen's algorithm only stores
     // the current and next row (optimization described in the paper)
-    let mut current_row = vec![(-1i32, true); arr_len as usize];
-    let mut next_row = vec![(-1i32, true); arr_len as usize];
-    let mut i = 0;
+    let mut current_row = vec![(-1i32, true); array_size as usize];
+    let mut next_row = vec![(-1i32, true); array_size as usize];
     // condition_diagonal is the diaogonal on which the resulting SED lies.
     // we will be checking this diagonal to determine if we can stop early
-    let condition_diagonal = size_diff + zero_k;
-    let end_max = condition_diagonal << 1;
+    let target_diagonal = size_diff + zero_k;
+    let target_diagonal_idx = target_diagonal as usize;
+    let end_max = target_diagonal << 1;
 
-    // prepare a simple test function if characters are eligible for substitution
-    #[inline(always)]
-    fn struct_diff(t1: &TraversalCharacter, t2: &TraversalCharacter) -> i32 {
-        (t1.preorder_following_postorder_preceding
-            .abs_diff(t2.preorder_following_postorder_preceding)
-            + t1.preorder_descendant_postorder_ancestor
-                .abs_diff(t2.preorder_descendant_postorder_ancestor)) as i32
-    }
-
-    let mut next_allowed_substitution = true;
-    loop {
-        // i here is the current allowed edit distance
-        i += 1;
+    // i => p in the C[p, k]
+    // k => is the target
+    for i in 1..=threshold + 1 {
         std::mem::swap(&mut next_row, &mut current_row);
 
-        let start: i32;
-        let mut next_cell: i32;
-        let mut previous_cell: i32;
-        let mut current_cell: i32 = -1;
-
-        // Calculate the starting diagonal for this iteration
-        // This follows Berghel & Roach's band algorithm approach
+        // Calculate original band boundaries from Berghel-Roach algorithm
+        let original_start: i32;
         if i <= zero_k {
-            start = -i + 1;
-            next_cell = i - 2i32;
+            original_start = -i + 1;
         } else {
-            // 2 if i = 11 and zero_k = 10
-            start = i - (zero_k << 1) + 1;
-            unsafe {
-                (next_cell, next_allowed_substitution) =
-                    *current_row.get_unchecked((zero_k + start) as usize);
-            }
+            original_start = i - (zero_k << 1) + 1;
         }
 
-        // Calculate the ending diagonal for this iteration
-        let end: i32;
-        if i <= condition_diagonal {
-            end = i;
+        let original_end: i32;
+        if i <= target_diagonal {
+            original_end = i;
             unsafe {
                 *next_row.get_unchecked_mut((zero_k + i) as usize) = (-1, true);
             }
         } else {
-            end = end_max - i;
+            original_end = end_max - i;
         }
-        // let current_edit_distance = (i - 1) as u32;
+
+        // Precompute valid diagonal range based on budget
+        // Use k (not threshold) for budget calculation since k is the actual distance limit
+        let budget = k as i32 - (i - 1);
+
+        // If budget is negative or zero, only the target diagonal is valid
+        let (min_valid_diag, max_valid_diag) = if budget <= 0 {
+            (size_diff, size_diff)
+        } else {
+            (size_diff - budget, size_diff + budget)
+        };
+
+        // Intersect the original band with the budget-constrained range
+        let start = max(original_start, min_valid_diag);
+        let end = min(original_end, max_valid_diag + 1); // +1 because range is exclusive
+
+        // Initialize cell variables for the adjusted starting position
+        // These represent values from the previous cost level (i-1):
+        // - current_cell: value at diagonal (start - 1)
+        // - next_cell: value at diagonal (start)
+        let mut current_cell: i32;
+        let mut next_cell: i32;
+        let mut previous_cell: i32;
+        let mut next_allowed_substitution: bool;
+
+        // Load initial values from previous row based on adjusted start position
+        if i <= zero_k && start == original_start {
+            // Original initialization for the standard case
+            current_cell = -1;
+            next_cell = i - 2i32;
+            next_allowed_substitution = true;
+        } else {
+            // When start is adjusted, load values from the appropriate positions
+            unsafe {
+                let start_idx = (zero_k + start) as usize;
+                current_cell = if start > original_start && start_idx > 0 {
+                    current_row.get_unchecked(start_idx - 1).0
+                } else {
+                    -1
+                };
+                (next_cell, next_allowed_substitution) = *current_row.get_unchecked(start_idx);
+            }
+        }
+
+        let current_edit_distance = (i - 1) as u32;
         let mut diagonal_index: usize = (start + zero_k).try_into().unwrap();
 
         let mut max_row_number;
@@ -535,32 +556,28 @@ pub fn bounded_string_edit_distance_with_structure(
 
             // Calculate the max of three possible operations (delete, insert, replace)
             // This is the standard dynamic programming recurrence relation for edit distance
-
             // however replacement can not occur in all cases, only if the mapping is possible
-
             // current_cell is basically the row in the matrix
 
             unsafe {
                 // do a current_cell + 1
-                max_row_number = max(current_cell + 1, max(previous_cell, next_cell + 1));
+                // If substitution is not allowed, treat as insertion/deletion (not diagonal move) current_cell + 0
+                max_row_number = max(
+                    current_cell + (if can_substitute { 1 } else { 0 }),
+                    max(previous_cell, next_cell + 1),
+                );
 
-                // If substitution is not allowed, treat as insertion/deletion (not diagonal move)
                 if !can_substitute {
                     // pokud nemuzu delat substituci a previous a next nedaji vetsi cislo, tak jen vezmu cislo
                     // current_cell, rovnou zapisu a nemusim se ani pokouset delat extension - zda se mi to zvetsi
 
-                    max_row_number = max(max(previous_cell, current_cell), next_cell + 1);
-
                     if max_row_number == current_cell {
-                        // TODO: jen zapsat a continue
                         *next_row.get_unchecked_mut(diagonal_index) = (max_row_number, false);
                         diagonal_index += 1;
                         continue;
                     }
                 }
             }
-            // can_substitute = true;
-            // let mut max_row_number = max_row_number as usize;
             unsafe {
                 let k = k as i32;
                 // The core extension to the original algorithm: match characters while possible
@@ -575,31 +592,21 @@ pub fn bounded_string_edit_distance_with_structure(
 
                 let mut struct_ok = false;
 
+                // Optimized: fetch once, reuse
                 while max_row_number < s1len && (max_row_number + diag_offset) < s2len {
-                    let char_eq = s1.get_unchecked((max_row_number) as usize).char
-                        == s2
-                            .get_unchecked((max_row_number + diag_offset) as usize)
-                            .char;
+                    let c1 = s1.get_unchecked(max_row_number as usize);
+                    let c2 = s2.get_unchecked((max_row_number + diag_offset) as usize);
 
-                    // Check structural constraints
-                    // this must always be evaluated because struct_ok is initialized to false
-                    struct_ok = (allowed_edits
-                        + struct_diff(
-                            s1.get_unchecked((max_row_number) as usize),
-                            s2.get_unchecked((max_row_number + diag_offset) as usize),
-                        ))
-                        <= k;
+                    let char_eq = c1.char == c2.char;
+                    struct_ok = (allowed_edits + (c1.sum - c2.sum).abs() <= k)
+                        && (allowed_edits + (c1.diff - c2.diff).abs() <= k);
 
                     if !char_eq || !struct_ok {
                         break;
                     }
-
                     max_row_number += 1;
                 }
 
-                // Branchless update: advance by the minimum of character and structural constraints
-
-                // disable substitution if we hit the big sturctural diff. If the problem is only character mismatch, it should be true
                 // Update substitution flag without branching: can substitute if we matched all characters
                 // that were equal (no structural constraint violation occurred)
                 *next_row.get_unchecked_mut(diagonal_index) = (max_row_number, struct_ok);
@@ -612,20 +619,13 @@ pub fn bounded_string_edit_distance_with_structure(
         // to determine the distance is > threshold, or we've reached the
         // threshold itself - this follows the "cutoff" principle in the paper
         unsafe {
-            if !(next_row.get_unchecked(condition_diagonal as usize).0 < s1len && i <= threshold) {
-                if threshold < k as i32 {
-                    break ((i - 1) + k as i32 - threshold) as usize;
-                }
-
-                if (next_row.get_unchecked(condition_diagonal as usize).0 < s1len) && i > threshold
-                {
-                    break usize::MAX;
-                }
-
-                break (i - 1) as usize;
+            if next_row.get_unchecked(target_diagonal_idx).0 >= s1len {
+                return (i - 1) as usize;
             }
         }
     }
+
+    usize::MAX
 }
 
 pub struct StringStructFactory;
@@ -659,61 +659,61 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 5,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 6,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         // avery
         let v2 = vec![
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 5,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 5,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
 
@@ -736,71 +736,71 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 6,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 7,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         // kitten
         let v2 = vec![
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 4,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 5,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 6,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
 
@@ -817,25 +817,25 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 4,
+                sum: 4,
+                diff: -4,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         let v2 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 1,
+                sum: 1,
+                diff: -1,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
 
@@ -852,55 +852,55 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 2,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 2,
+                diff: -2,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 3,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 3,
+                diff: -3,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 2,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 2,
+                diff: -2,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         let v2 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 2,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 2,
+                diff: -2,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         let result = bounded_string_edit_distance_with_structure(&v2, &v1, 2);
@@ -916,25 +916,25 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         let v2 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
 
@@ -947,30 +947,30 @@ mod tests {
         let v1 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 2,
-                preorder_descendant_postorder_ancestor: 0,
-                preorder_following_postorder_preceding: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
         let v2 = vec![
             TraversalCharacter {
                 char: 1,
-                preorder_descendant_postorder_ancestor: 0,
-                preorder_following_postorder_preceding: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 2,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
             TraversalCharacter {
                 char: 3,
-                preorder_following_postorder_preceding: 0,
-                preorder_descendant_postorder_ancestor: 0,
+                sum: 0,
+                diff: 0,
             },
         ];
 
@@ -1002,28 +1002,28 @@ mod tests {
             vec![
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 4,
+                    sum: 4,
+                    diff: 4,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 3,
+                    sum: 3,
+                    diff: 3,
                 },
                 TraversalCharacter {
                     char: 2,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 2,
+                    sum: 2,
+                    diff: 2,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 1,
+                    sum: 1,
+                    diff: 1,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 0,
+                    sum: 0,
+                    diff: 0,
                 },
             ]
         );
@@ -1036,28 +1036,28 @@ mod tests {
             vec![
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 4,
+                    sum: 4,
+                    diff: -4,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 3,
+                    sum: 3,
+                    diff: -3,
                 },
                 TraversalCharacter {
                     char: 2,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 2,
+                    sum: 2,
+                    diff: -2,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 1,
+                    sum: 1,
+                    diff: -1,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 0,
+                    sum: 0,
+                    diff: 0,
                 },
             ]
         );
@@ -1070,33 +1070,33 @@ mod tests {
             vec![
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 5,
+                    sum: 5,
+                    diff: 5,
                 },
                 TraversalCharacter {
                     char: 2,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 4,
+                    sum: 4,
+                    diff: 4,
                 },
                 TraversalCharacter {
                     char: 2,
-                    preorder_following_postorder_preceding: 2,
-                    preorder_descendant_postorder_ancestor: 1,
+                    sum: 3,
+                    diff: -1,
                 },
                 TraversalCharacter {
                     char: 2,
-                    preorder_following_postorder_preceding: 2,
-                    preorder_descendant_postorder_ancestor: 0,
+                    sum: 2,
+                    diff: -2,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 1,
+                    sum: 1,
+                    diff: 1,
                 },
                 TraversalCharacter {
                     char: 1,
-                    preorder_following_postorder_preceding: 0,
-                    preorder_descendant_postorder_ancestor: 0,
+                    sum: 0,
+                    diff: 0,
                 },
             ]
         );

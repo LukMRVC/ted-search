@@ -105,60 +105,97 @@ fn sed_k(t1: &SEDIndex, t2: &SEDIndex, k: usize) -> usize {
 fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
     // assumes size of s2 is bigger or equal than s1
     use std::cmp::{max, min};
+    let (s1, s2) = if s1.len() <= s2.len() {
+        (s1, s2)
+    } else {
+        (s2, s1)
+    };
     let s1len = s1.len() as i64;
     let s2len = s2.len() as i64;
 
     let threshold = min(s2len, k as i64);
     let size_diff = s2len - s1len;
-
-    if threshold < size_diff {
-        return threshold as usize;
+    if size_diff > threshold {
+        return usize::MAX;
     }
 
     let zero_k: i64 = ((if s1len < threshold { s1len } else { threshold }) >> 1) + 2;
 
     let arr_len = size_diff + (zero_k) * 2 + 2;
 
+    let condition_diag = size_diff + zero_k;
+    let end_max = (condition_diag) << 1;
+
     let mut current_row = vec![-1i64; arr_len as usize];
     let mut next_row = vec![-1i64; arr_len as usize];
-    let mut i = 0;
-    let condition_row = size_diff + zero_k;
-    let end_max = condition_row << 1;
 
-    loop {
-        i += 1;
+    for i in 1..=threshold + 1 {
         std::mem::swap(&mut next_row, &mut current_row);
 
-        let start: i64;
-        let mut next_cell: i64;
-        let mut previous_cell: i64;
-        let mut current_cell: i64 = -1;
-
+        // Calculate original band boundaries from Berghel-Roach algorithm
+        let original_start: i64;
         if i <= zero_k {
-            start = -i + 1;
-            next_cell = i - 2i64;
+            original_start = -i + 1;
         } else {
-            start = i - (zero_k << 1) + 1;
-            unsafe {
-                next_cell = *current_row.get_unchecked((zero_k + start) as usize);
-            }
+            original_start = i - (zero_k << 1) + 1;
         }
 
-        let end: i64;
-        if i <= condition_row {
-            end = i;
+        let original_end: i64;
+        if i <= condition_diag {
+            original_end = i;
             unsafe {
                 *next_row.get_unchecked_mut((zero_k + i) as usize) = -1;
             }
         } else {
-            end = end_max - i;
+            original_end = end_max - i;
         }
 
-        let mut row_index = (start + zero_k) as usize;
+        // Precompute valid diagonal range based on budget
+        let budget = threshold - (i - 1);
+
+        // If budget is negative or zero, only the target diagonal is valid
+        let (min_valid_diag, max_valid_diag) = if budget <= 0 {
+            (size_diff, size_diff)
+        } else {
+            (size_diff - budget, size_diff + budget)
+        };
+
+        // Intersect the original band with the budget-constrained range
+        let start = max(original_start, min_valid_diag);
+        let end = min(original_end, max_valid_diag + 1); // +1 because range is exclusive
+
+        // Initialize cell variables for the adjusted starting position
+        // These represent values from the previous cost level (i-1):
+        // - current_cell: value at diagonal (start - 1)
+        // - next_cell: value at diagonal (start)
+        let mut current_cell: i64;
+        let mut next_cell: i64;
+        let mut previous_cell: i64;
+
+        // Load initial values from previous row based on adjusted start position
+        if i <= zero_k && start == original_start {
+            // Original initialization for the standard case
+            current_cell = -1;
+            next_cell = i - 2i64;
+        } else {
+            // When start is adjusted, load values from the appropriate positions
+            unsafe {
+                let start_idx = (zero_k + start) as usize;
+                current_cell = if start > original_start && start_idx > 0 {
+                    *current_row.get_unchecked(start_idx - 1)
+                } else {
+                    -1
+                };
+                next_cell = *current_row.get_unchecked(start_idx);
+            }
+        }
+
+        let mut row_index = (start + zero_k) as usize - 1;
 
         let mut t;
 
         for q in start..end {
+            row_index += 1;
             previous_cell = current_cell;
             current_cell = next_cell;
             unsafe {
@@ -180,18 +217,17 @@ fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
             unsafe {
                 *next_row.get_unchecked_mut(row_index) = t;
             }
-            row_index += 1;
         }
 
         unsafe {
-            if !(*next_row.get_unchecked(condition_row as usize) < s1len && i <= threshold) {
-                if (*next_row.get_unchecked(condition_row as usize) < s1len) && i > threshold {
-                    break usize::MAX;
-                }
-                break (i - 1) as usize;
+            let condition_value = *next_row.get_unchecked(condition_diag as usize);
+            if condition_value >= s1len {
+                return (i - 1) as usize;
             }
         }
     }
+
+    usize::MAX
 }
 
 /// Gets the SED index for a given tree
@@ -249,5 +285,66 @@ mod tests {
 
         let result = bounded_string_edit_distance(&v1, &v2, 4);
         assert_eq!(result, 3);
+    }
+
+    #[test]
+    fn test_sed_br_impl() {
+        let query = "aaa".chars().map(|c| c as i32).collect::<Vec<_>>();
+        let target = "aaabcd".chars().map(|c| c as i32).collect::<Vec<_>>();
+
+        let result = bounded_string_edit_distance(&query, &target, 3);
+        assert_eq!(
+            result, 3,
+            "Expected edit distance of 3 between 'aaa' and 'aaabcd' with k=3"
+        );
+
+        let query = "garvey".chars().map(|c| c as i32).collect::<Vec<_>>();
+        let target = "avery".chars().map(|c| c as i32).collect::<Vec<_>>();
+
+        let result = bounded_string_edit_distance(&query, &target, 3);
+        assert_eq!(
+            result, 3,
+            "Expected edit distance of 3 between 'garvey' and 'avery' with k=3"
+        );
+
+        let result = bounded_string_edit_distance(&query, &target, 2);
+        assert_eq!(
+            result,
+            usize::MAX,
+            "Expected edit non computable (distance > k) between 'garvey' and 'avery' with k=2"
+        );
+
+        let query = "abcde".chars().map(|c| c as i32).collect::<Vec<_>>();
+        let target = "fghij".chars().map(|c| c as i32).collect::<Vec<_>>();
+
+        let result = bounded_string_edit_distance(&query, &target, 5);
+        assert_eq!(
+            result, 5,
+            "Expected edit distance of 5 between 'abcde' and 'fghij' with k=5"
+        );
+
+        let query = "kitten".chars().map(|c| c as i32).collect::<Vec<_>>();
+        let target = "sitting".chars().map(|c| c as i32).collect::<Vec<_>>();
+
+        let result = bounded_string_edit_distance(&query, &target, 3);
+        assert_eq!(
+            result, 3,
+            "Expected edit distance of 3 between 'kitten' and 'sitting' with k=5"
+        );
+
+        let query = "123456452abc".chars().map(|c| c as i32).collect::<Vec<_>>();
+        let target = "173829526452abc"
+            .chars()
+            .map(|c| c as i32)
+            .collect::<Vec<_>>();
+
+        let result = bounded_string_edit_distance(&query, &target, 4);
+        assert_eq!(
+            result,
+            usize::MAX,
+            "Expected edit distance of 3 between 'kitten' and 'sitting' with k=5"
+        );
+
+        // assert_eq!(matrix, initialized_fkp_target);
     }
 }
