@@ -1,5 +1,28 @@
 use tree_parsing::ParsedTree;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TraversalKind {
+    Preorder,
+    Postorder,
+    ReversedPreorder,
+    ReversedPostorder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TraversalSelection {
+    pub first: TraversalKind,
+    pub second: TraversalKind,
+}
+
+impl Default for TraversalSelection {
+    fn default() -> Self {
+        Self {
+            first: TraversalKind::Preorder,
+            second: TraversalKind::Postorder,
+        }
+    }
+}
+
 /// Trait for lower bound algorithm methods
 pub trait LowerBoundMethod {
     /// Name/identifier for this method

@@ -1,4 +1,4 @@
-pub use ted_base::{AlgorithmFactory, AlgorithmType, LowerBoundMethod};
+pub use ted_base::{AlgorithmFactory, AlgorithmType, LowerBoundMethod, TraversalKind};
 use ted_lb_bib::BinaryBranchAlgorithm;
 pub use ted_lb_bib::BinaryBranchFactory;
 use ted_lb_label_intersection::LabelIntersectionAlgorithm;
@@ -117,4 +117,16 @@ where
 
     // The compiler can verify this conversion
     algo.into()
+}
+
+pub fn create_sed_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
+    Algorithm::Sed(SedAlgorithm::new(first, second))
+}
+
+pub fn create_sed_exact_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
+    Algorithm::SedExact(SedExactAlgorithm::new(first, second))
+}
+
+pub fn create_sed_struct_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
+    Algorithm::StringStruct(StringStructAlgorithm::new(first, second))
 }

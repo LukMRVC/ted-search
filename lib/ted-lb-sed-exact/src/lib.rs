@@ -1,9 +1,26 @@
-use indextree::NodeId;
-use ted_base::{AlgorithmFactory, LowerBoundMethod};
-use ted_lb_sed::SEDIndex;
+use ted_base::{AlgorithmFactory, LowerBoundMethod, TraversalKind, TraversalSelection};
+use ted_lb_sed::{traverse, SEDIndex};
 use tree_parsing::ParsedTree;
 
-pub struct SedExactAlgorithm;
+pub struct SedExactAlgorithm {
+    traversal_selection: TraversalSelection,
+}
+
+impl SedExactAlgorithm {
+    pub fn new(first: TraversalKind, second: TraversalKind) -> Self {
+        Self {
+            traversal_selection: TraversalSelection { first, second },
+        }
+    }
+}
+
+impl Default for SedExactAlgorithm {
+    fn default() -> Self {
+        Self {
+            traversal_selection: TraversalSelection::default(),
+        }
+    }
+}
 
 impl LowerBoundMethod for SedExactAlgorithm {
     const NAME: &'static str = "SED-EXACT";
@@ -14,7 +31,10 @@ impl LowerBoundMethod for SedExactAlgorithm {
     type IndexParams = ();
 
     fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
-        Ok(data.iter().map(preprocess_tree).collect::<Vec<_>>())
+        Ok(data
+            .iter()
+            .map(|tree| preprocess_tree(tree, self.traversal_selection))
+            .collect::<Vec<_>>())
     }
 
     fn lower_bound(
@@ -45,48 +65,40 @@ impl LowerBoundMethod for SedExactAlgorithm {
 }
 
 pub fn sed_exact(t1: &SEDIndex, t2: &SEDIndex, threshold: usize) -> usize {
-    let post_dist = exact_string_edit_distance(&t1.postorder, &t2.postorder);
-    if post_dist > threshold {
-        return post_dist;
+    let first_dist = exact_string_edit_distance(&t1.first_traversal, &t2.first_traversal);
+    if first_dist > threshold {
+        return first_dist;
     }
-    let pre_dist = exact_string_edit_distance(&t1.preorder, &t2.preorder);
-    std::cmp::max(pre_dist, post_dist)
+    let second_dist = exact_string_edit_distance(&t1.second_traversal, &t2.second_traversal);
+    std::cmp::max(first_dist, second_dist)
 }
 
 pub fn exact_string_edit_distance(s1: &[i32], s2: &[i32]) -> usize {
-    if s1.is_empty() {
-        return s2.len();
-    }
-    if s2.is_empty() {
-        return s1.len();
-    }
+    use std::cmp::min;
+    // assumes size of s2 is smaller or equal than s1
+    let s2len = s2.len();
+    let mut cache: Vec<usize> = (1..s2len + 1).collect();
+    let mut result = s2len;
+    for (i, ca) in s1.iter().enumerate() {
+        let mut dist_b = i;
+        result = i + 1;
 
-    let (a, b) = if s1.len() <= s2.len() {
-        (s1, s2)
-    } else {
-        (s2, s1)
-    };
-
-    let mut prev = (0..=a.len()).collect::<Vec<usize>>();
-    let mut curr = vec![0usize; a.len() + 1];
-
-    for (i, bch) in b.iter().enumerate() {
-        curr[0] = i + 1;
-        for (j, ach) in a.iter().enumerate() {
-            let cost = if ach == bch { 0 } else { 1 };
-            let deletion = prev[j + 1] + 1;
-            let insertion = curr[j] + 1;
-            let substitution = prev[j] + cost;
-            curr[j + 1] = deletion.min(insertion).min(substitution);
+        for (j, cb) in s2.iter().enumerate() {
+            let dist_a = dist_b + usize::from(ca != cb);
+            unsafe {
+                dist_b = *cache.get_unchecked(j);
+                result = min(result + 1, min(dist_a, dist_b + 1));
+                *cache.get_unchecked_mut(j) = result;
+            }
         }
-        std::mem::swap(&mut prev, &mut curr);
     }
 
-    prev[a.len()]
+    result
 }
 
 fn preprocess_tree(
     tree: &ParsedTree,
+    selection: TraversalSelection,
 ) -> <SedExactAlgorithm as LowerBoundMethod>::PreprocessedDataType {
     let Some(root) = tree.iter().next() else {
         panic!("Unable to get root but tree is not empty!");
@@ -94,25 +106,49 @@ fn preprocess_tree(
 
     let root_id = tree.get_node_id(root).expect("Failed to get root node id");
 
-    let mut pre = Vec::with_capacity(tree.count());
-    let mut post = Vec::with_capacity(tree.count());
+    let mut pre = Vec::new();
+    let mut post = Vec::new();
+    let mut reversed_preorder = Vec::new();
+    let mut reversed_postorder = Vec::new();
 
-    traverse(root_id, tree, &mut pre, &mut post);
+    let mut reserve_memory = |kind: TraversalKind| match kind {
+        TraversalKind::Preorder => pre.reserve(tree.count()),
+        TraversalKind::Postorder => post.reserve(tree.count()),
+        TraversalKind::ReversedPreorder => reversed_preorder.reserve(tree.count()),
+        TraversalKind::ReversedPostorder => reversed_postorder.reserve(tree.count()),
+    };
+
+    reserve_memory(selection.first);
+    reserve_memory(selection.second);
+
+    traverse(
+        root_id,
+        tree,
+        selection,
+        &mut pre,
+        &mut post,
+        &mut reversed_preorder,
+        &mut reversed_postorder,
+    );
+
+    reversed_preorder.reverse();
+    reversed_postorder.reverse();
 
     SEDIndex {
-        postorder: post,
-        preorder: pre,
+        first_traversal: match selection.first {
+            TraversalKind::Preorder => pre.clone(),
+            TraversalKind::Postorder => post.clone(),
+            TraversalKind::ReversedPreorder => reversed_preorder.clone(),
+            TraversalKind::ReversedPostorder => reversed_postorder.clone(),
+        },
+        second_traversal: match selection.second {
+            TraversalKind::Preorder => pre.clone(),
+            TraversalKind::Postorder => post.clone(),
+            TraversalKind::ReversedPreorder => reversed_preorder.clone(),
+            TraversalKind::ReversedPostorder => reversed_postorder.clone(),
+        },
         tree_size: tree.count(),
     }
-}
-
-fn traverse(nid: NodeId, tree: &ParsedTree, pre: &mut Vec<i32>, post: &mut Vec<i32>) {
-    let label = tree.get(nid).unwrap().get();
-    pre.push(*label);
-    for cnid in nid.children(tree) {
-        traverse(cnid, tree, pre, post);
-    }
-    post.push(*label);
 }
 
 pub struct SedExactFactory;
@@ -121,7 +157,7 @@ impl AlgorithmFactory for SedExactFactory {
     type AlgorithmType = SedExactAlgorithm;
 
     fn create_algorithm() -> Self::AlgorithmType {
-        SedExactAlgorithm
+        SedExactAlgorithm::default()
     }
 }
 
@@ -139,13 +175,13 @@ mod tests {
     #[test]
     fn test_sed_exact_on_indices() {
         let t1 = SEDIndex {
-            preorder: vec![1, 2, 3],
-            postorder: vec![2, 3, 1],
+            first_traversal: vec![1, 2, 3],
+            second_traversal: vec![2, 3, 1],
             tree_size: 3,
         };
         let t2 = SEDIndex {
-            preorder: vec![1, 3, 4],
-            postorder: vec![3, 4, 1],
+            first_traversal: vec![1, 3, 4],
+            second_traversal: vec![3, 4, 1],
             tree_size: 3,
         };
 

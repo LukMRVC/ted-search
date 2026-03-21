@@ -19,7 +19,7 @@ static QUERY: Emoji<'_, '_> = Emoji("🔎", "QT");
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    let lower_bound_method: Algorithm = cli.method.into();
+    let lower_bound_method: Algorithm = cli.algorithm();
 
     let mut label_dict = LabelDict::new();
 

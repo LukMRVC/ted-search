@@ -1,12 +1,12 @@
 use indextree::NodeId;
-use ted_base::{AlgorithmFactory, LowerBoundMethod};
+use ted_base::{AlgorithmFactory, LowerBoundMethod, TraversalKind, TraversalSelection};
 use tree_parsing::{LabelId, ParsedTree};
 
 use crate::index_gram::IndexGram;
 
-mod index_gram;
-
 pub(crate) type Traversal = Vec<LabelId>;
+
+mod index_gram;
 
 #[derive(Debug, Clone)]
 /// A struct representing the String edit distance (SED) index.
@@ -15,8 +15,8 @@ pub(crate) type Traversal = Vec<LabelId>;
 /// It stores the preorder and postorder traversal sequences of the tree, as well as the tree size.
 ///
 pub struct SEDIndex {
-    pub preorder: Traversal,
-    pub postorder: Traversal,
+    pub first_traversal: Traversal,
+    pub second_traversal: Traversal,
     pub tree_size: usize,
 }
 
@@ -27,7 +27,31 @@ pub struct IndexParams {
     pub q: usize,
 }
 
-pub struct SedAlgorithm;
+pub struct SedAlgorithm {
+    traversal_selection: TraversalSelection,
+}
+
+impl SedAlgorithm {
+    pub fn new(first: TraversalKind, second: TraversalKind) -> Self {
+        Self {
+            traversal_selection: TraversalSelection { first, second },
+        }
+    }
+
+    pub fn with_selection(traversal_selection: TraversalSelection) -> Self {
+        Self {
+            traversal_selection,
+        }
+    }
+}
+
+impl Default for SedAlgorithm {
+    fn default() -> Self {
+        Self {
+            traversal_selection: TraversalSelection::default(),
+        }
+    }
+}
 
 impl LowerBoundMethod for SedAlgorithm {
     const NAME: &'static str = "SED";
@@ -39,7 +63,10 @@ impl LowerBoundMethod for SedAlgorithm {
     type IndexParams = IndexParams;
 
     fn preprocess(&self, data: &[ParsedTree]) -> Result<Vec<Self::PreprocessedDataType>, String> {
-        Ok(data.iter().map(preprocess_tree).collect::<Vec<_>>())
+        Ok(data
+            .iter()
+            .map(|tree| preprocess_tree(tree, self.traversal_selection))
+            .collect::<Vec<_>>())
     }
 
     fn lower_bound(
@@ -59,7 +86,7 @@ impl LowerBoundMethod for SedAlgorithm {
         let preorder = data
             .iter()
             .cloned()
-            .map(|si| si.preorder)
+            .map(|si| si.first_traversal)
             .collect::<Vec<_>>();
         Ok(IndexGram::new(&preorder, params.q))
     }
@@ -74,7 +101,9 @@ impl LowerBoundMethod for SedAlgorithm {
         index: &Self::IndexType,
         threshold: usize,
     ) -> Vec<usize> {
-        index.query(query.preorder.clone(), threshold).unwrap()
+        index
+            .query(query.first_traversal.clone(), threshold)
+            .unwrap()
     }
 }
 
@@ -88,16 +117,18 @@ fn sed_k(t1: &SEDIndex, t2: &SEDIndex, k: usize) -> usize {
     }
 
     // if size of t1 is bigger than t2, swap them
-    if t1.preorder.len() > t2.preorder.len() {
+    if t1.tree_size > t2.tree_size {
         (t1, t2) = (t2, t1);
     }
-    let post_dist = bounded_string_edit_distance(&t1.postorder, &t2.postorder, k);
 
-    if post_dist > k {
-        return post_dist;
+    let first_dist = bounded_string_edit_distance(&t1.first_traversal, &t2.first_traversal, k);
+
+    if first_dist > k {
+        return first_dist;
     }
-    let pre_dist = bounded_string_edit_distance(&t1.preorder, &t2.preorder, k);
-    std::cmp::max(pre_dist, post_dist)
+
+    let second_dist = bounded_string_edit_distance(&t2.second_traversal, &t2.second_traversal, k);
+    std::cmp::max(first_dist, second_dist)
 }
 
 /// Computes the bounded string edit distance between two sequences with a given threshold k.
@@ -231,34 +262,88 @@ fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
 }
 
 /// Gets the SED index for a given tree
-fn preprocess_tree(tree: &ParsedTree) -> <SedAlgorithm as LowerBoundMethod>::PreprocessedDataType {
+fn preprocess_tree(
+    tree: &ParsedTree,
+    selection: TraversalSelection,
+) -> <SedAlgorithm as LowerBoundMethod>::PreprocessedDataType {
     let Some(root) = tree.iter().next() else {
         panic!("Unable to get root but tree is not empty!");
     };
 
     let root_id = tree.get_node_id(root).expect("Failed to get root node id");
 
-    let mut pre = Vec::with_capacity(tree.count());
-    let mut post = Vec::with_capacity(tree.count());
+    let mut pre = Vec::new();
+    let mut post = Vec::new();
+    let mut reversed_preorder = Vec::new();
+    let mut reversed_postorder = Vec::new();
 
-    traverse(root_id, tree, &mut pre, &mut post);
+    let mut reserve_memory = |kind: TraversalKind| match kind {
+        TraversalKind::Preorder => pre.reserve(tree.count()),
+        TraversalKind::Postorder => post.reserve(tree.count()),
+        TraversalKind::ReversedPreorder => reversed_preorder.reserve(tree.count()),
+        TraversalKind::ReversedPostorder => reversed_postorder.reserve(tree.count()),
+    };
+
+    reserve_memory(selection.first);
+    reserve_memory(selection.second);
+
+    traverse(
+        root_id,
+        tree,
+        selection,
+        &mut pre,
+        &mut post,
+        &mut reversed_preorder,
+        &mut reversed_postorder,
+    );
+
+    reversed_preorder.reverse();
+    reversed_postorder.reverse();
 
     SEDIndex {
-        postorder: post,
-        preorder: pre,
+        first_traversal: match selection.first {
+            TraversalKind::Preorder => pre.clone(),
+            TraversalKind::Postorder => post.clone(),
+            TraversalKind::ReversedPreorder => reversed_preorder.clone(),
+            TraversalKind::ReversedPostorder => reversed_postorder.clone(),
+        },
+        second_traversal: match selection.second {
+            TraversalKind::Preorder => pre.clone(),
+            TraversalKind::Postorder => post.clone(),
+            TraversalKind::ReversedPreorder => reversed_preorder.clone(),
+            TraversalKind::ReversedPostorder => reversed_postorder.clone(),
+        },
         tree_size: tree.count(),
     }
 }
 
 /// Traverses the tree, recording the preorder and postorder sequences  of labels.
-fn traverse(nid: NodeId, tree: &ParsedTree, pre: &mut Vec<i32>, post: &mut Vec<i32>) {
+pub fn traverse(
+    nid: NodeId,
+    tree: &ParsedTree,
+    selection: TraversalSelection,
+    pre: &mut Vec<i32>,
+    post: &mut Vec<i32>,
+    reversed_pre: &mut Vec<i32>,
+    reversed_post: &mut Vec<i32>,
+) {
     // i am here at the current root
     // Retrieves the label associated with a given node ID from the tree.
     let label = tree.get(nid).unwrap().get();
     pre.push(*label);
+    reversed_post.push(*label);
     for cnid in nid.children(tree) {
-        traverse(cnid, tree, pre, post);
+        traverse(
+            cnid,
+            tree,
+            selection,
+            pre,
+            post,
+            reversed_pre,
+            reversed_post,
+        );
     }
+    reversed_pre.push(*label);
     post.push(*label);
 }
 
@@ -267,7 +352,7 @@ pub struct SedFactory;
 impl AlgorithmFactory for SedFactory {
     type AlgorithmType = SedAlgorithm;
     fn create_algorithm() -> Self::AlgorithmType {
-        SedAlgorithm
+        SedAlgorithm::default()
     }
 }
 

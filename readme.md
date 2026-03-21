@@ -23,27 +23,38 @@ Required arguments:
 - `--dataset`, `-d`: path to dataset file
 - `--queries`, `-q`: path to query CSV (`<threshold>;<tree>` format)
 - `<METHOD>`: lower bound method, one of:
- 	- `lblint`
- 	- `sed`
- 	- `sed-exact`
- 	- `sed-struct`
- 	- `structural`
- 	- `bib`
+  - `lblint`
+  - `sed`
+  - `sed-exact`
+  - `sed-struct`
+  - `structural`
+  - `bib`
 
 Optional arguments:
 
 - `--runs`, `-r`: run count for repeated benchmarking (default `1`)
 - `--delimiter`: query CSV delimiter (default `;`)
+- `--traversal-a`: first traversal for `sed`, `sed-exact`, and `sed-struct` (default `preorder`)
+- `--traversal-b`: second traversal for `sed`, `sed-exact`, and `sed-struct` (default `postorder`)
+
+Traversal option values:
+
+- `preorder`
+- `postorder`
+- `reversed-preorder`
+- `reversed-postorder`
 
 Example:
 
 ```bash
 cargo run -p ted-search-cli -- \
- --dataset article/datasets/labels-10/collection.csv \
- --queries article/datasets/labels-10/query.csv \
- --runs 3 \
- --delimiter ';' \
- sed-struct
+  --dataset article/datasets/labels-10/collection.csv \
+  --queries article/datasets/labels-10/query.csv \
+  --runs 3 \
+  --delimiter ';' \
+  --traversal-a preorder \
+  --traversal-b reversed-postorder \
+  sed-struct
 ```
 
 ## tree-statistics-cli
