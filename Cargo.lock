@@ -435,6 +435,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ted-lb-sed-exact"
+version = "0.1.0"
+dependencies = [
+ "indextree",
+ "ted-base",
+ "ted-lb-sed",
+ "tree-parsing",
+]
+
+[[package]]
 name = "ted-lb-sed-struct"
 version = "0.1.0"
 dependencies = [
@@ -465,6 +475,7 @@ dependencies = [
  "ted-lb-bib",
  "ted-lb-label-intersection",
  "ted-lb-sed",
+ "ted-lb-sed-exact",
  "ted-lb-sed-struct",
  "ted-lb-structural",
  "tree-parsing",

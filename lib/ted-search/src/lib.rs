@@ -5,6 +5,8 @@ use ted_lb_label_intersection::LabelIntersectionAlgorithm;
 pub use ted_lb_label_intersection::LabelIntersectionFactory;
 use ted_lb_sed::SedAlgorithm;
 pub use ted_lb_sed::SedFactory;
+use ted_lb_sed_exact::SedExactAlgorithm;
+pub use ted_lb_sed_exact::SedExactFactory;
 use ted_lb_sed_struct::StringStructAlgorithm;
 pub use ted_lb_sed_struct::StringStructFactory;
 pub use ted_lb_structural::{StructuralAlgorithm, StructuralFactory};
@@ -15,6 +17,7 @@ pub use tree_parsing::{
 pub enum Algorithm {
     LabelIntersection(LabelIntersectionAlgorithm),
     Sed(SedAlgorithm),
+    SedExact(SedExactAlgorithm),
     StringStruct(StringStructAlgorithm),
     Structural(StructuralAlgorithm),
     BinaryBranch(BinaryBranchAlgorithm),
@@ -29,6 +32,12 @@ impl From<SedAlgorithm> for Algorithm {
 impl From<StringStructAlgorithm> for Algorithm {
     fn from(algo: StringStructAlgorithm) -> Self {
         Algorithm::StringStruct(algo)
+    }
+}
+
+impl From<SedExactAlgorithm> for Algorithm {
+    fn from(algo: SedExactAlgorithm) -> Self {
+        Algorithm::SedExact(algo)
     }
 }
 
@@ -90,6 +99,7 @@ impl Algorithm {
         match self {
             Algorithm::LabelIntersection(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::Sed(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::SedExact(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::StringStruct(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::Structural(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::BinaryBranch(algo) => run_search_pipeline(algo, data, queries),

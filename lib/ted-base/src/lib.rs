@@ -52,6 +52,7 @@ pub trait LowerBoundMethod {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlgorithmType {
     Sed,
+    SedExact,
     StringStruct,
     Structural,
     BinaryBranch,

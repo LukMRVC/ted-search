@@ -23,11 +23,12 @@ Required arguments:
 - `--dataset`, `-d`: path to dataset file
 - `--queries`, `-q`: path to query CSV (`<threshold>;<tree>` format)
 - `<METHOD>`: lower bound method, one of:
-	- `lblint`
-	- `sed`
-	- `sed-struct`
-	- `structural`
-	- `bib`
+ 	- `lblint`
+ 	- `sed`
+ 	- `sed-exact`
+ 	- `sed-struct`
+ 	- `structural`
+ 	- `bib`
 
 Optional arguments:
 
@@ -38,11 +39,11 @@ Example:
 
 ```bash
 cargo run -p ted-search-cli -- \
-	--dataset article/datasets/labels-10/collection.csv \
-	--queries article/datasets/labels-10/query.csv \
-	--runs 3 \
-	--delimiter ';' \
-	sed-struct
+ --dataset article/datasets/labels-10/collection.csv \
+ --queries article/datasets/labels-10/query.csv \
+ --runs 3 \
+ --delimiter ';' \
+ sed-struct
 ```
 
 ## tree-statistics-cli

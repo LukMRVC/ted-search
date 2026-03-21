@@ -1,0 +1,10 @@
+[package]
+name = "ted-lb-sed-exact"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+indextree.workspace = true
+ted-base = { version = "0.1.0", path = "../ted-base" }
+ted-lb-sed = { version = "0.1.0", path = "../ted-lb-sed" }
+tree-parsing = { version = "0.1.0", path = "../tree-parsing" }

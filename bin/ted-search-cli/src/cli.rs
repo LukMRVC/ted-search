@@ -1,8 +1,8 @@
 use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 use ted_search::{
-    create_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory, SedFactory,
-    StringStructFactory, StructuralFactory,
+    create_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory, SedExactFactory,
+    SedFactory, StringStructFactory, StructuralFactory,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -11,6 +11,8 @@ pub enum LowerBoundMethods {
     Lblint,
     /// String edit distance lower bound
     Sed,
+    /// Exact string edit distance lower bound
+    SedExact,
     /// String edit distance with structure lower bound
     SEDStruct,
     /// Structural filter lower bound
@@ -24,6 +26,7 @@ impl From<LowerBoundMethods> for Algorithm {
         match method {
             LowerBoundMethods::Lblint => create_algorithm::<LabelIntersectionFactory>(),
             LowerBoundMethods::Sed => create_algorithm::<SedFactory>(),
+            LowerBoundMethods::SedExact => create_algorithm::<SedExactFactory>(),
             LowerBoundMethods::SEDStruct => create_algorithm::<StringStructFactory>(),
             LowerBoundMethods::Structural => create_algorithm::<StructuralFactory>(),
             LowerBoundMethods::Bib => create_algorithm::<BinaryBranchFactory>(),
