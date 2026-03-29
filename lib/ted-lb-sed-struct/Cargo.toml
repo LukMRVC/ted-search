@@ -1,0 +1,9 @@
+[package]
+name = "ted-lb-sed-struct"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+indextree.workspace = true
+ted-base = { version = "0.1.0", path = "../ted-base" }
+tree-parsing = { version = "0.1.0", path = "../tree-parsing" }

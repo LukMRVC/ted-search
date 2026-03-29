@@ -1,0 +1,17 @@
+[package]
+name = "ted-search"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tree-parsing = { path = "../tree-parsing", version = "0.1.0" }
+ted-base = { path = "../ted-base", version = "0.1.0" }
+ted-lb-label-intersection = { path = "../ted-lb-label-intersection", version = "0.1.0" }
+ted-lb-sed = { path = "../ted-lb-sed", version = "0.1.0" }
+ted-lb-sed-exact = { path = "../ted-lb-sed-exact", version = "0.1.0" }
+ted-lb-sed-struct = { path = "../ted-lb-sed-struct", version = "0.1.0" }
+ted-lb-structural = { path = "../ted-lb-structural", version = "0.1.0" }
+ted-lb-bib = { path = "../ted-lb-bib", version = "0.1.0" }
+indextree.workspace = true
+rustc-hash.workspace = true
+itertools.workspace = true

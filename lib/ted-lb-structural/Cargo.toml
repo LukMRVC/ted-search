@@ -1,0 +1,11 @@
+[package]
+name = "ted-lb-structural"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tree-parsing = { path = "../tree-parsing", version = "0.1.0" }
+ted-base = { path = "../ted-base", version = "0.1.0" }
+indextree.workspace = true
+rustc-hash.workspace = true
+itertools.workspace = true
