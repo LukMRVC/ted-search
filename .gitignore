@@ -3,3 +3,5 @@
 article/datasets/
 
 .venv
+
+external-sources/build/*

@@ -13,8 +13,8 @@ git submodule update --init --recursive
 
 cargo build && cargo test && cargo build --release
 
-mkdir -p tree-similarity/build && cd tree-similarity/build
-cmake .. -DCMAKE_BUILD_TYPE=Release
+
+mkdir -p external-sources/build && cd external-sources/build && cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)
 cd ../../
 

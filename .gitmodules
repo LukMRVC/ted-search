@@ -1,0 +1,3 @@
+[submodule "external-sources/external/tree-similarity"]
+	path = external-sources/external/tree-similarity
+	url = git@github.com:DatabaseGroup/tree-similarity.git

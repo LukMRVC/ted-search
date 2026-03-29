@@ -3,8 +3,6 @@
 Clone this repository and run `prepare_repo.sh` bash script.
 
 
-
-
 # TED CLI Usage
 
 This repository currently contains one CLI package in the workspace:
