@@ -113,14 +113,17 @@ impl BinaryBranchAlgorithm {
             right_sibling_label,
         );
 
-        let mut binding = self.binary_branch_id_map.borrow_mut();
-        let bb_id = binding.entry(bb_tuple).or_insert_with(|| {
-            self.bb_id.set(self.bb_id.get() + 1);
-            self.bb_id.get()
-        });
+        // Keep the RefCell borrow in a tight scope so recursion can borrow again safely.
+        let bb_id = {
+            let mut binding = self.binary_branch_id_map.borrow_mut();
+            *binding.entry(bb_tuple).or_insert_with(|| {
+                self.bb_id.set(self.bb_id.get() + 1);
+                self.bb_id.get()
+            })
+        };
 
         branch_vector
-            .entry(*bb_id)
+            .entry(bb_id)
             .and_modify(|count| *count += 1)
             .or_insert(1);
 

@@ -33,7 +33,8 @@ for dataset in "${datasets[@]}"; do
     cargo run --release --  --formatted --runs 3 --dataset "$dataset/trees_sorted.bracket" --queries "$dataset/query.csv" --output "$dataset" "$method" >> "$dataset/query_times.csv"
   done
 
-  ../external-sources/build/query_validate "$dataset/trees_sorted.bracket" "$dataset/query.csv" "$dataset/query_times.csv" > "$dataset/verified-all.csv"
+  ../external-sources/build/query_validate "$dataset/trees_sorted.bracket" "$dataset/query.csv" "$dataset/Sed_candidates.csv" \
+  "$dataset/SEDStruct_candidates.csv" "$dataset/Bib_candidates.csv" "$dataset/Structural_candidates.csv" "$dataset/Lblint_candidates.csv" > "$dataset/verified-all.csv"
   
   echo "Done with $dataset"
 done
