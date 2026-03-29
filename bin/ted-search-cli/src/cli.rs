@@ -1,5 +1,5 @@
 use clap::{Parser, ValueEnum};
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 use ted_search::{
     create_algorithm, create_sed_algorithm, create_sed_exact_algorithm,
     create_sed_struct_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory,
@@ -20,6 +20,20 @@ pub enum LowerBoundMethods {
     Structural,
     /// Binary branch lower bound
     Bib,
+}
+
+impl Display for LowerBoundMethods {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            LowerBoundMethods::Lblint => "Lblint",
+            LowerBoundMethods::Sed => "Sed",
+            LowerBoundMethods::SedExact => "Sed",
+            LowerBoundMethods::SEDStruct => "SEDStruct",
+            LowerBoundMethods::Structural => "Structural",
+            LowerBoundMethods::Bib => "Bib",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -70,6 +84,14 @@ pub struct Cli {
     /// Then the lowest duration of all runs is taken as result
     #[arg(long = "runs", short = 'r', default_value_t = 1)]
     pub runs: usize,
+
+    /// Path to the output candidates file
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
+
+    /// Turns on formatted output, and off human readable
+    #[arg(long = "formatted", short = 'f', default_value_t = false)]
+    pub formatted: bool,
 
     /// CSV query delimiter
     #[clap(long, default_value_t = ';')]

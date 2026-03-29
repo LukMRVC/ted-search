@@ -18,3 +18,19 @@ mkdir -p external-sources/build && cd external-sources/build && cmake .. -DCMAKE
 make -j$(nproc)
 cd ../../
 
+wget -P article --show-progress "https://github.com/LukMRVC/ted-search/releases/download/datasets-v1.0/datasets.tar.zst"
+wget -P article "https://github.com/LukMRVC/ted-search/releases/download/datasets-v1.0/datasets.tar.zst.sha256"
+
+cd article;
+
+if sha256sum --check --status datasets.tar.zst.sha256; then
+    echo "Checksum passed!"
+else
+    echo "Checksum failed! Exiting."
+    exit 1
+fi
+
+tar --zstd -xf datasets.tar.zst
+
+cd ..
+
