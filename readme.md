@@ -1,5 +1,14 @@
 # Reproduction usage
 
+## Prerequisites
+- CMake v3.7
+- Cargo + Rust > 1.94
+- Zstd
+- Git with SSH
+- WGET
+- sha256sum
+- tar
+
 Clone this repository and run `prepare_repo.sh` bash script.
 
 
