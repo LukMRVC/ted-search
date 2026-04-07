@@ -8,3 +8,5 @@ article/dataset*
 external-sources/build/*
 
 .vscode/
+*.pdf
+*datasets
