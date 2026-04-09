@@ -27,6 +27,7 @@ pub struct BinaryBranchAlgorithm {
 impl LowerBoundMethod for BinaryBranchAlgorithm {
     const NAME: &'static str = "BinaryBranch";
     const SUPPORTS_INDEX: bool = false;
+    const DIVISOR: usize = 5;
 
     type PreprocessedDataType = BinaryBranchTree;
     type IndexType = ();
@@ -60,7 +61,7 @@ impl LowerBoundMethod for BinaryBranchAlgorithm {
     ) -> usize {
         let (t1s, t2s) = (data.size, query.size);
         if t1s.abs_diff(t2s) > threshold {
-            return threshold + 1;
+            return threshold * Self::DIVISOR + 1;
         }
         let mut intersection_size = 0usize;
 
@@ -71,7 +72,7 @@ impl LowerBoundMethod for BinaryBranchAlgorithm {
             intersection_size += min(*t2postings, *postings) as usize;
         }
 
-        ((t1s + t2s) - (2 * intersection_size)) / 5
+        (t1s + t2s) - (2 * intersection_size)
     }
 
     fn build_index(

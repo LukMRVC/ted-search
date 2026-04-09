@@ -31,6 +31,9 @@ pub trait LowerBoundMethod {
     /// Constant indicating whether the method supports an index
     const SUPPORTS_INDEX: bool;
 
+    /// Divisor for the lower bound to be used in the search algorithm
+    const DIVISOR: usize = 1;
+
     /// Type of preprocessed data if needed
     /// If no preprocessing is needed, this can be `()`
     type PreprocessedDataType;

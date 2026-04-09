@@ -84,7 +84,7 @@ fn run_search_pipeline<T: LowerBoundMethod>(
         let mut result = Vec::new();
         for (i, data_tree) in preprocessed.iter().enumerate() {
             let lb = algo_instance.lower_bound(&query, data_tree, k);
-            if lb <= k {
+            if lb <= k * T::DIVISOR {
                 result.push(i);
             }
         }
