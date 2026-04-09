@@ -64,11 +64,11 @@ for dataset in "${datasets[@]}"; do
 
   test -f "$dataset/query_times.csv" && rm "$dataset/query_times.csv"
   
-  # Run SED and capture output
+  # Run LB 
   echo "  Running LB filters..."
   for method in "${methods[@]}"; do
     echo "    Method: $method"
-    cargo run --release --  --formatted --runs 3 --dataset "$dataset/trees_sorted.bracket" --queries "$dataset/query.csv" --output "$dataset" "$method" >> "$dataset/query_times.csv"
+    cargo run --release --  --formatted --runs 3 --dataset "$dataset/trees_sorted.bracket" --queries "$dataset/query.csv" --output "$dataset" "$method" --sed-traversal-first reversed-preorder --sed-traversal-second preorder >> "$dataset/query_times.csv"
   done
 
   ../external-sources/build/query_validate "$dataset/trees_sorted.bracket" "$dataset/query.csv" "$dataset/Sed_candidates.csv" \

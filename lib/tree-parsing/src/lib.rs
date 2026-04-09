@@ -1,6 +1,6 @@
 mod error;
 use crossbeam_channel::Sender;
-use indextree::{Arena, NodeId};
+use indextree::{Arena, NodeEdge, NodeId};
 use itertools::Itertools;
 use memchr::memchr2_iter;
 use rayon::prelude::*;
@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::string::String;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use crate::error::{DatasetParseError, TreeParseError};
 
@@ -37,67 +37,79 @@ fn braces_parity_check(parity: &mut i32, addorsub: i32) -> Result<(), TreeParseE
     Ok(())
 }
 
+pub fn tree_to_bracket(tree: &ParsedTree) -> String {
+    let mut bracket_notation = String::with_capacity(tree.count() * 4);
+    let Some(root) = tree.iter().next() else {
+        panic!("Root not found!");
+    };
+    let root_id = tree.get_node_id(root).expect("Root ID not found!");
+
+    for edge in root_id.traverse(tree) {
+        match edge {
+            NodeEdge::Start(node_id) => {
+                bracket_notation.push('{');
+                bracket_notation.push_str(&tree.get(node_id).unwrap().get().to_string());
+            }
+            NodeEdge::End(_) => {
+                bracket_notation.push('}');
+            }
+        }
+    }
+
+    bracket_notation
+}
+
 #[inline(always)]
 fn is_escaped(byte_string: &[u8], offset: usize) -> bool {
     offset > 0 && byte_string[offset - 1] == ESCAPE_CHAR
 }
+
 pub fn parse_dataset(
     dataset_file: &impl AsRef<Path>,
     label_dict: &mut LabelDict,
 ) -> Result<Vec<ParsedTree>, DatasetParseError> {
-    let (sender, receiver) = crossbeam_channel::unbounded::<String>();
-    let ld = Arc::new(Mutex::new(label_dict));
-    let copy_ld = Arc::clone(&ld);
-    let collection_tree_tokens = std::thread::scope(|s| {
-        s.spawn(move || {
-            let mut ld = copy_ld.lock().unwrap();
-            let mut max_node_id = ld.values().len() as LabelId;
-            while let Ok(label) = receiver.recv() {
-                ld.entry(label)
-                    .and_modify(|(_, lblcnt)| *lblcnt += 1)
-                    .or_insert_with(|| {
-                        max_node_id += 1;
-                        (max_node_id, 1)
-                    });
+    // Use scc::HashMap for lock-free concurrent label dictionary during parsing
+    let scc_label_dict = scc::HashMap::new();
+
+    // Initialize scc::HashMap with existing label_dict entries and find max ID
+    let max_node_id = AtomicI32::new(label_dict.values().map(|(id, _)| *id).max().unwrap_or(0));
+
+    for (label, (id, count)) in label_dict.iter() {
+        let _ = scc_label_dict.insert_sync(label.clone(), (*id, *count));
+    }
+
+    let reader = BufReader::new(File::open(dataset_file).unwrap());
+
+    // Parse in parallel while tracking original index for stable ordering
+    // enumerate() is lazy, par_bridge() streams directly from the reader
+    let mut trees: Vec<(usize, ParsedTree)> = reader
+        .lines()
+        .enumerate()
+        .par_bridge()
+        .filter_map(|(idx, tree_line)| {
+            let tree_line = tree_line.ok()?;
+            if !tree_line.is_ascii() {
+                return None;
             }
-        });
 
-        let reader = BufReader::new(File::open(dataset_file).unwrap());
-        let tree_lines = reader
-            .lines()
-            .collect::<Result<Vec<String>, _>>()
-            .expect("Unable to read input file");
-        // println!("Consumed {} lines of trees", tree_lines.len());
+            parse_tree_directly(&tree_line, &scc_label_dict, &max_node_id)
+                .ok()
+                .map(|tree| (idx, tree))
+        })
+        .collect();
 
-        tree_lines
-            .into_par_iter()
-            .enumerate()
-            .map_with(sender, |s, (_, tree_line)| {
-                if !tree_line.is_ascii() {
-                    return Err(TreeParseError::IsNotAscii);
-                }
-                parse_tree_tokens(tree_line, Some(s))
-            })
-            .filter(Result::is_ok)
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
+    // Convert scc::HashMap to FxHashMap using scan_sync
+    label_dict.clear();
+    scc_label_dict.retain_sync(|label, (id, count)| {
+        label_dict.insert(label.clone(), (*id, *count));
+        false
     });
 
-    // println!(
-    //     "Parsed {} lines of tree tokens",
-    //     collection_tree_tokens.len()
-    // );
-    // println!("Parsing tokens into trees");
-    let label_dict = Arc::try_unwrap(ld)
-        .expect("Arc has references")
-        .into_inner()
-        .unwrap();
-    let trees = collection_tree_tokens
-        .par_iter()
-        .map(|tokens| parse_tree(tokens, label_dict))
-        .filter(Result::is_ok)
-        .collect::<Result<Vec<_>, _>>()?;
-    // println!("Final number of trees: {}", trees.len());
+    // Stable sort: by tree count, then by original index as tiebreaker
+    trees.sort_by(|(idx_a, a), (idx_b, b)| a.count().cmp(&b.count()).then(idx_a.cmp(idx_b)));
+
+    // Extract just the trees, discarding indices
+    let trees = trees.into_iter().map(|(_, tree)| tree).collect();
 
     Ok(trees)
 }
@@ -184,6 +196,100 @@ pub fn update_label_dict(tokens_collection: &[Vec<&str>], ld: &mut LabelDict) {
                 (max_node_id, 1)
             });
     }
+}
+
+// Fused parsing: tokenize and build tree directly without intermediate Vec<String>
+// Eliminates brace tokens entirely - only stores label IDs in the Arena
+fn parse_tree_directly(
+    tree_line: &str,
+    label_dict: &scc::HashMap<String, (LabelId, usize)>,
+    max_node_id: &AtomicI32,
+) -> Result<ParsedTree, TreeParseError> {
+    use TreeParseError as TPE;
+
+    let tree_bytes = tree_line.as_bytes();
+    let token_positions: Vec<usize> = memchr2_iter(TOKEN_START, TOKEN_END, tree_bytes)
+        .filter(|char_pos| !is_escaped(tree_bytes, *char_pos))
+        .collect();
+
+    if token_positions.len() < 2 {
+        return Err(TPE::IncorrectFormat(
+            "Minimal of 2 brackets not found!".to_owned(),
+        ));
+    }
+
+    // Estimate tree size: roughly half of tokens are labels (the other half are braces)
+    let estimated_nodes = token_positions.len() / 2;
+    let mut tree_arena = ParsedTree::with_capacity(estimated_nodes);
+    let mut node_stack: Vec<NodeId> = Vec::with_capacity(32); // typical tree depth
+    let mut parity_check = 0;
+
+    let mut token_iterator = token_positions.iter().peekable();
+
+    while let Some(token_pos) = token_iterator.next() {
+        match tree_bytes[*token_pos] {
+            TOKEN_START => {
+                braces_parity_check(&mut parity_check, 1)?;
+
+                let Some(token_end) = token_iterator.peek() else {
+                    let err_msg = format!("Label has no ending token near col {token_pos}");
+                    return Err(TPE::IncorrectFormat(err_msg));
+                };
+
+                // Extract label bytes without allocating String for braces
+                let label_bytes = &tree_bytes[(token_pos + 1)..**token_end];
+
+                // Skip empty labels or escaped braces that result in brace-only labels
+                if label_bytes.is_empty() || label_bytes == b"{" || label_bytes == b"}" {
+                    continue;
+                }
+
+                // Convert to string only for the label lookup/insert
+                let label = unsafe { String::from_utf8_unchecked(label_bytes.to_vec()) };
+
+                // Get or insert label ID from concurrent hashmap
+                let label_id = {
+                    let entry = label_dict.entry_sync(label);
+                    match entry {
+                        scc::hash_map::Entry::Occupied(mut occ) => {
+                            let (id, count) = occ.get_mut();
+                            *count += 1;
+                            *id
+                        }
+                        scc::hash_map::Entry::Vacant(vac) => {
+                            let new_id = max_node_id.fetch_add(1, Ordering::Relaxed) + 1;
+                            vac.insert_entry((new_id, 1));
+                            new_id
+                        }
+                    }
+                };
+
+                // Create node and append to tree
+                let node = tree_arena.new_node(label_id);
+                if let Some(parent) = node_stack.last() {
+                    parent.append(node, &mut tree_arena);
+                } else if tree_arena.count() > 1 {
+                    return Err(TPE::IncorrectFormat(
+                        "Multiple root nodes detected".to_owned(),
+                    ));
+                }
+                node_stack.push(node);
+            }
+            TOKEN_END => {
+                braces_parity_check(&mut parity_check, -1)?;
+                if node_stack.pop().is_none() {
+                    return Err(TPE::IncorrectFormat("Wrong bracket pairing".to_owned()));
+                }
+            }
+            _ => return Err(TPE::TokenizerError),
+        }
+    }
+
+    if parity_check != 0 {
+        return Err(TPE::IncorrectFormat("Unbalanced brackets".to_owned()));
+    }
+
+    Ok(tree_arena)
 }
 
 pub fn parse_tree(tokens: &[String], ld: &LabelDict) -> Result<ParsedTree, TreeParseError> {

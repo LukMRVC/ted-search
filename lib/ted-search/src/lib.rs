@@ -11,7 +11,8 @@ use ted_lb_sed_struct::StringStructAlgorithm;
 pub use ted_lb_sed_struct::StringStructFactory;
 pub use ted_lb_structural::{StructuralAlgorithm, StructuralFactory};
 pub use tree_parsing::{
-    parse_dataset, parse_queries, parse_single, update_label_dict, LabelDict, LabelId, ParsedTree,
+    parse_dataset, parse_queries, parse_single, tree_to_bracket, update_label_dict, LabelDict,
+    LabelId, ParsedTree,
 };
 
 pub enum Algorithm {

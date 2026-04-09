@@ -69,7 +69,6 @@ impl IndexGram {
 
         // for chunk in chunks.iter().take(k + 1)
         for chunk in chunks.iter() {
-            // dbg!(chunk);
             if let Some(postings) = self.inv_index.get(&chunk.sig) {
                 let Err(start) = postings.binary_search_by(|probe| {
                     probe

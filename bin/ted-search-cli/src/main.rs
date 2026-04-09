@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 
 use console::{style, Emoji};
 use indicatif::{HumanDuration, ProgressBar};
-
 mod cli;
 use cli::Cli;
 
@@ -163,6 +162,16 @@ fn main() -> ExitCode {
                         std::process::exit(1);
                     });
             }
+        }
+    } else {
+        // print to stdout
+        for (query_idx, candidates) in search_results.iter().enumerate() {
+            println!(
+                "Query {}: Candidates ({}): {:?}",
+                query_idx,
+                candidates.len(),
+                candidates
+            );
         }
     }
 

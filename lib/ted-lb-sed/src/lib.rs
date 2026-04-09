@@ -127,7 +127,8 @@ fn sed_k(t1: &SEDIndex, t2: &SEDIndex, k: usize) -> usize {
         return first_dist;
     }
 
-    let second_dist = bounded_string_edit_distance(&t2.second_traversal, &t2.second_traversal, k);
+    let second_dist = bounded_string_edit_distance(&t1.second_traversal, &t2.second_traversal, k);
+
     std::cmp::max(first_dist, second_dist)
 }
 

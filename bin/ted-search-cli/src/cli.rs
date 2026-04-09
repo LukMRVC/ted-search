@@ -1,4 +1,5 @@
 use clap::{Parser, ValueEnum};
+use colored::Colorize;
 use std::{fmt::Display, path::PathBuf};
 use ted_search::{
     create_algorithm, create_sed_algorithm, create_sed_exact_algorithm,
@@ -102,6 +103,26 @@ impl Cli {
     pub fn algorithm(&self) -> Algorithm {
         let traversal_a: TraversalKind = self.sed_traversal_first.into();
         let traversal_b: TraversalKind = self.sed_traversal_second.into();
+
+        match self.method {
+            LowerBoundMethods::Sed | LowerBoundMethods::SedExact | LowerBoundMethods::SEDStruct
+                if !self.formatted =>
+            {
+                println!(
+                    "{} Using traversals: {} and {}",
+                    "Info:".blue(),
+                    format!("{:?}", traversal_a).blue(),
+                    format!("{:?}", traversal_b).blue()
+                );
+                if traversal_a == traversal_b {
+                    eprintln!(
+                        "{}",
+                        "Warning: Both traversals for SED-based algorithm are the same. Consider using different traversals for better performance.".yellow()
+                    );
+                }
+            }
+            _ => {}
+        }
 
         match self.method {
             LowerBoundMethods::Lblint => create_algorithm::<LabelIntersectionFactory>(),
