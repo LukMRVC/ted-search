@@ -30,6 +30,7 @@ struct TraversalBuffers {
     reversed_postorder: Vec<TraversalCharacter>,
 }
 
+#[derive(Default)]
 pub struct StringStructAlgorithm {
     traversal_selection: TraversalSelection,
 }
@@ -38,14 +39,6 @@ impl StringStructAlgorithm {
     pub fn new(first: TraversalKind, second: TraversalKind) -> Self {
         Self {
             traversal_selection: TraversalSelection { first, second },
-        }
-    }
-}
-
-impl Default for StringStructAlgorithm {
-    fn default() -> Self {
-        Self {
-            traversal_selection: TraversalSelection::default(),
         }
     }
 }
@@ -270,12 +263,11 @@ pub fn bounded_string_edit_distance_with_structure(
         std::mem::swap(&mut next_row, &mut current_row);
 
         // Calculate original band boundaries from Berghel-Roach algorithm
-        let original_start: i32;
-        if i <= zero_k {
-            original_start = -i + 1;
+        let original_start: i32 = if i <= zero_k {
+            -i + 1
         } else {
-            original_start = i - (zero_k << 1) + 1;
-        }
+            i - (zero_k << 1) + 1
+        };
 
         let original_end: i32;
         if i <= target_diagonal {

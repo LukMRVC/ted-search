@@ -2,6 +2,7 @@ use ted_base::{AlgorithmFactory, LowerBoundMethod, TraversalKind, TraversalSelec
 use ted_lb_sed::{traverse, SEDIndex};
 use tree_parsing::ParsedTree;
 
+#[derive(Default)]
 pub struct SedExactAlgorithm {
     traversal_selection: TraversalSelection,
 }
@@ -14,13 +15,6 @@ impl SedExactAlgorithm {
     }
 }
 
-impl Default for SedExactAlgorithm {
-    fn default() -> Self {
-        Self {
-            traversal_selection: TraversalSelection::default(),
-        }
-    }
-}
 
 impl LowerBoundMethod for SedExactAlgorithm {
     const NAME: &'static str = "SED-EXACT";

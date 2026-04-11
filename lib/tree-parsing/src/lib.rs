@@ -236,15 +236,14 @@ fn parse_tree_directly(
                     return Err(TPE::IncorrectFormat(err_msg));
                 };
 
-                // Extract label bytes without allocating String for braces
+                // Extract label bytes between this `{` and the next unescaped
+                // brace. Empty labels are intentionally allowed: per the APTED
+                // bracket-notation spec, `{a{}}` is a 2-node tree whose child
+                // has an empty label. Skipping empty labels here would also
+                // corrupt the parent stack, since the parity counter has
+                // already been incremented and the matching `}` would pop a
+                // real ancestor.
                 let label_bytes = &tree_bytes[(token_pos + 1)..**token_end];
-
-                // Skip empty labels or escaped braces that result in brace-only labels
-                if label_bytes.is_empty() || label_bytes == b"{" || label_bytes == b"}" {
-                    continue;
-                }
-
-                // Convert to string only for the label lookup/insert
                 let label = unsafe { String::from_utf8_unchecked(label_bytes.to_vec()) };
 
                 // Get or insert label ID from concurrent hashmap
@@ -490,6 +489,37 @@ mod tests {
         n1.append(n3, &mut arena);
 
         assert_eq!(tree_arena, arena);
+    }
+
+    #[test]
+    fn test_parses_empty_label_node_in_dataset_path() {
+        // Per the APTED bracket-notation spec that this parser must match,
+        // `{a{}}` is a path of TWO nodes: root with label "a" and a single
+        // child with an empty label.
+        //
+        // The candidate-loading path (`parse_dataset` -> `parse_tree_directly`)
+        // currently `continue`s on empty labels AFTER incrementing the brace
+        // parity counter. The matching `}` then pops a node that was never
+        // pushed, corrupting the parent stack. So even if you accept losing
+        // the empty node, the resulting tree is structurally wrong, not just
+        // smaller.
+        //
+        // Meanwhile the query path (`parse_queries` -> `parse_tree_tokens` +
+        // `parse_tree`) keeps empty labels, so the same input parses
+        // differently depending on which file it lives in. That asymmetry is
+        // the suspected source of TED divergence between this crate and the
+        // APTED module used for verification.
+        let input = "{a{}}";
+        let scc_dict = scc::HashMap::new();
+        let max_id = AtomicI32::new(0);
+        let tree = parse_tree_directly(input, &scc_dict, &max_id)
+            .expect("parse_tree_directly should accept {a{}}");
+        assert_eq!(
+            tree.count(),
+            2,
+            "Expected 2 nodes (root 'a' + empty-label child), got {}",
+            tree.count()
+        );
     }
 
     #[test]

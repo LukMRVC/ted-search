@@ -125,8 +125,7 @@ fn main() -> ExitCode {
         println!("candidates:{candidates_count}",);
     }
 
-    if cli.output.is_some() {
-        let output_path = cli.output.as_ref().unwrap();
+    if let Some(output_path) = &cli.output {
         if !output_path.is_dir() {
             eprintln!(
                 "{}",

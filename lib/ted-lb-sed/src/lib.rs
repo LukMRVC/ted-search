@@ -27,6 +27,7 @@ pub struct IndexParams {
     pub q: usize,
 }
 
+#[derive(Default)]
 pub struct SedAlgorithm {
     traversal_selection: TraversalSelection,
 }
@@ -41,14 +42,6 @@ impl SedAlgorithm {
     pub fn with_selection(traversal_selection: TraversalSelection) -> Self {
         Self {
             traversal_selection,
-        }
-    }
-}
-
-impl Default for SedAlgorithm {
-    fn default() -> Self {
-        Self {
-            traversal_selection: TraversalSelection::default(),
         }
     }
 }
@@ -165,12 +158,12 @@ fn bounded_string_edit_distance(s1: &[i32], s2: &[i32], k: usize) -> usize {
         std::mem::swap(&mut next_row, &mut current_row);
 
         // Calculate original band boundaries from Berghel-Roach algorithm
-        let original_start: i64;
-        if i <= zero_k {
-            original_start = -i + 1;
+
+        let original_start: i64 = if i <= zero_k {
+            -i + 1
         } else {
-            original_start = i - (zero_k << 1) + 1;
-        }
+            i - (zero_k << 1) + 1
+        };
 
         let original_end: i64;
         if i <= condition_diag {
@@ -322,7 +315,7 @@ fn preprocess_tree(
 pub fn traverse(
     nid: NodeId,
     tree: &ParsedTree,
-    selection: TraversalSelection,
+    _selection: TraversalSelection,
     pre: &mut Vec<i32>,
     post: &mut Vec<i32>,
     reversed_pre: &mut Vec<i32>,
@@ -337,7 +330,7 @@ pub fn traverse(
         traverse(
             cnid,
             tree,
-            selection,
+            _selection,
             pre,
             post,
             reversed_pre,

@@ -72,7 +72,7 @@ fn run_search_pipeline<T: LowerBoundMethod>(
         .iter()
         .map(|(k, query)| {
             let mut pq = algo_instance
-                .preprocess(&[query.clone()])
+                .preprocess(std::slice::from_ref(query))
                 .expect("Unable to preprocess query");
             let pq: <T as LowerBoundMethod>::PreprocessedDataType = pq.remove(0);
             (k.to_owned(), pq)
