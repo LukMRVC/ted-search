@@ -196,8 +196,13 @@ fn traverse_with_info(
         sum: following as i32 + ancestor,
         diff: following as i32 - ancestor,
     };
+
     buffers.postorder.push(post_data.clone());
-    buffers.reversed_preorder.push(post_data);
+    buffers.reversed_preorder.push(TraversalCharacter {
+        char: *label,
+        sum: preceding as i32 + descendant,
+        diff: preceding as i32 - descendant,
+    });
 
     subtree_size
 }
@@ -214,7 +219,6 @@ fn sed_struct_k(t1: &StringStructEDIndex, t2: &StringStructEDIndex, k: usize) ->
 
     let first_dist =
         bounded_string_edit_distance_with_structure(&t1.first_traversal, &t2.first_traversal, k);
-
     if first_dist > k {
         return first_dist;
     }
