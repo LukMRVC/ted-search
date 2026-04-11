@@ -8,8 +8,16 @@
 - WGET
 - sha256sum
 - tar
+- Jupyter
+- Python >= 3.12
 
-Clone this repository and run `prepare_repo.sh` bash script.
+1. Clone this repository 
+2. Run `prepare_repo.sh` bash script.
+3. CD into `article` directory
+4. Run `run_experiments.sh` bash script, using `bash run_experiments.sh`. This takes time.
+5. Create python Venv and install requirements.txt
+6. Open up `graphs.ipynb` to visualize the experimantal results
+
 
 
 # TED CLI Usage
