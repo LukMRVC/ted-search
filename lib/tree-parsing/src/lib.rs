@@ -198,6 +198,31 @@ pub fn update_label_dict(tokens_collection: &[Vec<&str>], ld: &mut LabelDict) {
     }
 }
 
+// Cheap structural pre-check used by `parse_tree_directly` to drop malformed
+// lines before tokenization. Every backslash unconditionally consumes the
+// following byte, so the escape rule here is intentionally coarser than the
+// "preceding byte is `\`" rule used by the tokenizer below.
+fn input_validate(tree_bytes: &[u8]) -> bool {
+    let mut bracket_diff: i32 = 0;
+    let mut bracket_pair_count: i32 = 0;
+    let mut i = 0;
+    let n = tree_bytes.len();
+    while i < n {
+        let c = tree_bytes[i];
+        if c == ESCAPE_CHAR {
+            // Skip the next byte unconditionally.
+            i += 1;
+        } else if c == TOKEN_START {
+            bracket_diff += 1;
+            bracket_pair_count += 1;
+        } else if c == TOKEN_END {
+            bracket_diff -= 1;
+        }
+        i += 1;
+    }
+    bracket_diff == 0 && bracket_pair_count > 0
+}
+
 // Fused parsing: tokenize and build tree directly without intermediate Vec<String>
 // Eliminates brace tokens entirely - only stores label IDs in the Arena
 fn parse_tree_directly(
@@ -208,6 +233,13 @@ fn parse_tree_directly(
     use TreeParseError as TPE;
 
     let tree_bytes = tree_line.as_bytes();
+
+    // Reject malformed lines up front so dataset indices line up with the
+    // reference loader (see `input_validate`).
+    if !input_validate(tree_bytes) {
+        return Err(TPE::IncorrectFormat("Rejected by validator".to_owned()));
+    }
+
     let token_positions: Vec<usize> = memchr2_iter(TOKEN_START, TOKEN_END, tree_bytes)
         .filter(|char_pos| !is_escaped(tree_bytes, *char_pos))
         .collect();
@@ -519,6 +551,182 @@ mod tests {
             2,
             "Expected 2 nodes (root 'a' + empty-label child), got {}",
             tree.count()
+        );
+    }
+
+    #[test]
+    fn test_rejects_double_backslash_brace() {
+        let scc_dict = scc::HashMap::new();
+        let max_id = AtomicI32::new(0);
+        let result = parse_tree_directly("{\\\\}}", &scc_dict, &max_id);
+        assert!(
+            result.is_err(),
+            "Expected `{{\\\\}}}}` to be rejected by validate_input, \
+             but it was accepted (parsed {} nodes)",
+            result.map(|t| t.count()).unwrap_or(0)
+        );
+    }
+
+    #[test]
+    fn test_accepts_singly_escaped_brace_in_label() {
+        // Sanity check the regression test above does not throw the baby out
+        // with the bathwater: `{a\}b}` is a single node whose label contains a
+        // legitimately escaped right brace.
+        let scc_dict = scc::HashMap::new();
+        let max_id = AtomicI32::new(0);
+        let tree = parse_tree_directly("{a\\}b}", &scc_dict, &max_id)
+            .expect("singly-escaped brace inside a label must still parse");
+        assert_eq!(tree.count(), 1);
+    }
+
+    #[test]
+    fn test_tokens_cases() {
+        // Tokenizer output for a range of bracket-notation inputs. Empty
+        // labels are kept as explicit `""` tokens.
+        let cases: &[(&str, &[&str])] = &[
+            ("{a}", &["{", "a", "}"]),
+            (
+                "{a{b{c}{d{e}}}{f{g}{h{i{j}{k}}}}{l{m}}}",
+                &[
+                    "{", "a", "{", "b", "{", "c", "}", "{", "d", "{", "e", "}", "}", "}", "{", "f",
+                    "{", "g", "}", "{", "h", "{", "i", "{", "j", "}", "{", "k", "}", "}", "}", "}",
+                    "{", "l", "{", "m", "}", "}", "}",
+                ],
+            ),
+            ("{\"a{\"b\"}}", &["{", "\"a", "{", "\"b\"", "}", "}"]),
+            ("{\\{a{\\{b\\}}}", &["{", "\\{a", "{", "\\{b\\}", "}", "}"]),
+            // empty root label
+            ("{}", &["{", "", "}"]),
+            // both nodes have empty labels
+            ("{{}}", &["{", "", "{", "", "}", "}"]),
+            (
+                "{\"a{\\{b\\}}{}}",
+                &["{", "\"a", "{", "\\{b\\}", "}", "{", "", "}", "}"],
+            ),
+            (
+                "{a{\\{[b],\\{key:\"value\"\\}\\}{}}}",
+                &[
+                    "{",
+                    "a",
+                    "{",
+                    "\\{[b],\\{key:\"value\"\\}\\}",
+                    "{",
+                    "",
+                    "}",
+                    "}",
+                    "}",
+                ],
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert!(
+                input_validate(input.as_bytes()),
+                "validator should accept {input:?}",
+            );
+            let tokens = parse_tree_tokens(input.to_string(), None)
+                .unwrap_or_else(|e| panic!("parse_tree_tokens failed for {input:?}: {e:?}"));
+            let expected_vec: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
+            assert_eq!(tokens, expected_vec, "tokens mismatch for {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_size_cases() {
+        // Node count of a parsed tree for a range of inputs.
+        let cases: &[(&str, usize)] = &[
+            ("{a}", 1),
+            ("{a{b{c}{d{e}}}{f{g}{h{i{j}{k}}}}{l{m}}}", 13),
+            // root has an empty label and two children
+            ("{{a}{b{c}}}", 4),
+        ];
+
+        let scc_dict = scc::HashMap::new();
+        let max_id = AtomicI32::new(0);
+        for (input, expected_size) in cases {
+            assert!(
+                input_validate(input.as_bytes()),
+                "validator should accept {input:?}",
+            );
+            let tree = parse_tree_directly(input, &scc_dict, &max_id)
+                .unwrap_or_else(|e| panic!("parse_tree_directly failed for {input:?}: {e:?}"));
+            assert_eq!(
+                tree.count(),
+                *expected_size,
+                "tree size mismatch for {input:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn test_labels_cases() {
+        // Pre-order label sequence for a range of inputs. For valid bracket
+        // notation the input encounter order IS the pre-order, so we recover
+        // the sequence by tokenizing and dropping the brace tokens.
+        let cases: &[(&str, &[&str])] = &[
+            ("{a}", &["a"]),
+            (
+                "{a{b{c}{d{e}}}{f{g}{h{i{j}{k}}}}{l{m}}}",
+                &[
+                    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+                ],
+            ),
+            ("{\"a{\"b\"}}", &["\"a", "\"b\""]),
+            ("{\\{a{\\{b\\}}}", &["\\{a", "\\{b\\}"]),
+            // single empty-label node
+            ("{}", &[""]),
+            // two empty-label nodes
+            ("{{}}", &["", ""]),
+            ("{\"a{\\{b\\}}{}}", &["\"a", "\\{b\\}", ""]),
+            (
+                "{a{\\{[b],\\{key:\"value\"\\}\\}{}}}",
+                &["a", "\\{[b],\\{key:\"value\"\\}\\}", ""],
+            ),
+        ];
+
+        for (input, expected) in cases {
+            assert!(
+                input_validate(input.as_bytes()),
+                "validator should accept {input:?}",
+            );
+            let tokens = parse_tree_tokens(input.to_string(), None)
+                .unwrap_or_else(|e| panic!("parse_tree_tokens failed for {input:?}: {e:?}"));
+            let labels: Vec<String> = tokens
+                .into_iter()
+                .filter(|t| t != "{" && t != "}")
+                .collect();
+            let expected_vec: Vec<String> = expected.iter().map(|s| s.to_string()).collect();
+            assert_eq!(labels, expected_vec, "labels mismatch for {input:?}");
+        }
+    }
+
+    #[test]
+    fn test_collection_size_cases() {
+        // Loading a small dataset file yields the expected number of trees
+        // and the expected total node count.
+        let contents = "{a}\n\
+                        {a{b{c}{d{e}}}{f{g}{h{i{j}{k}}}}{l{m}}}\n\
+                        {1{2{3{4{5{6{7{8{9{10{11{12{13{14{15{16{17{18{19{20}}}}}}}}}}}}}}}}}}}}\n";
+
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "ted-search-collection-size-{}.bracket",
+            std::process::id()
+        ));
+        std::fs::write(&path, contents).expect("write temp dataset");
+
+        let mut ld = LabelDict::default();
+        let result = parse_dataset(&path, &mut ld);
+
+        let _ = std::fs::remove_file(&path);
+
+        let trees = result.expect("parse_dataset failed");
+        assert_eq!(trees.len(), 3, "expected 3 trees in collection");
+        let total_nodes: usize = trees.iter().map(|t| t.count()).sum();
+        assert_eq!(
+            total_nodes,
+            1 + 13 + 20,
+            "expected 34 total nodes across the collection",
         );
     }
 
