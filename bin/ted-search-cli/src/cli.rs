@@ -2,7 +2,7 @@ use clap::{Parser, ValueEnum};
 use colored::Colorize;
 use std::{fmt::Display, path::PathBuf};
 use ted_search::{
-    create_algorithm, create_sed_algorithm, create_sed_exact_algorithm,
+    create_2sed_algorithm, create_algorithm, create_sed_algorithm, create_sed_exact_algorithm,
     create_sed_struct_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory,
     StructuralFactory, TraversalKind,
 };
@@ -15,6 +15,8 @@ pub enum LowerBoundMethods {
     Sed,
     /// Exact string edit distance lower bound
     SedExact,
+    /// Two-traversal summed string edit distance lower bound
+    TwoSed,
     /// String edit distance with structure lower bound
     SEDStruct,
     /// Structural filter lower bound
@@ -29,6 +31,7 @@ impl Display for LowerBoundMethods {
             LowerBoundMethods::Lblint => "Lblint",
             LowerBoundMethods::Sed => "Sed",
             LowerBoundMethods::SedExact => "Sed",
+            LowerBoundMethods::TwoSed => "2SED",
             LowerBoundMethods::SEDStruct => "SEDStruct",
             LowerBoundMethods::Structural => "Structural",
             LowerBoundMethods::Bib => "Bib",
@@ -105,7 +108,10 @@ impl Cli {
         let traversal_b: TraversalKind = self.sed_traversal_second.into();
 
         match self.method {
-            LowerBoundMethods::Sed | LowerBoundMethods::SedExact | LowerBoundMethods::SEDStruct
+            LowerBoundMethods::Sed
+            | LowerBoundMethods::SedExact
+            | LowerBoundMethods::TwoSed
+            | LowerBoundMethods::SEDStruct
                 if !self.formatted =>
             {
                 println!(
@@ -128,6 +134,7 @@ impl Cli {
             LowerBoundMethods::Lblint => create_algorithm::<LabelIntersectionFactory>(),
             LowerBoundMethods::Sed => create_sed_algorithm(traversal_a, traversal_b),
             LowerBoundMethods::SedExact => create_sed_exact_algorithm(traversal_a, traversal_b),
+            LowerBoundMethods::TwoSed => create_2sed_algorithm(traversal_a, traversal_b),
             LowerBoundMethods::SEDStruct => create_sed_struct_algorithm(traversal_a, traversal_b),
             LowerBoundMethods::Structural => create_algorithm::<StructuralFactory>(),
             LowerBoundMethods::Bib => create_algorithm::<BinaryBranchFactory>(),

@@ -7,6 +7,8 @@ use ted_lb_sed::SedAlgorithm;
 pub use ted_lb_sed::SedFactory;
 use ted_lb_sed_exact::SedExactAlgorithm;
 pub use ted_lb_sed_exact::SedExactFactory;
+use ted_lb_2sed::Sed2Algorithm;
+pub use ted_lb_2sed::Sed2Factory;
 use ted_lb_sed_struct::StringStructAlgorithm;
 pub use ted_lb_sed_struct::StringStructFactory;
 pub use ted_lb_structural::{StructuralAlgorithm, StructuralFactory};
@@ -19,6 +21,7 @@ pub enum Algorithm {
     LabelIntersection(LabelIntersectionAlgorithm),
     Sed(SedAlgorithm),
     SedExact(SedExactAlgorithm),
+    Sed2(Sed2Algorithm),
     StringStruct(StringStructAlgorithm),
     Structural(StructuralAlgorithm),
     BinaryBranch(BinaryBranchAlgorithm),
@@ -39,6 +42,12 @@ impl From<StringStructAlgorithm> for Algorithm {
 impl From<SedExactAlgorithm> for Algorithm {
     fn from(algo: SedExactAlgorithm) -> Self {
         Algorithm::SedExact(algo)
+    }
+}
+
+impl From<Sed2Algorithm> for Algorithm {
+    fn from(algo: Sed2Algorithm) -> Self {
+        Algorithm::Sed2(algo)
     }
 }
 
@@ -101,6 +110,7 @@ impl Algorithm {
             Algorithm::LabelIntersection(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::Sed(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::SedExact(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::Sed2(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::StringStruct(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::Structural(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::BinaryBranch(algo) => run_search_pipeline(algo, data, queries),
@@ -126,6 +136,10 @@ pub fn create_sed_algorithm(first: TraversalKind, second: TraversalKind) -> Algo
 
 pub fn create_sed_exact_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
     Algorithm::SedExact(SedExactAlgorithm::new(first, second))
+}
+
+pub fn create_2sed_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
+    Algorithm::Sed2(Sed2Algorithm::new(first, second))
 }
 
 pub fn create_sed_struct_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
