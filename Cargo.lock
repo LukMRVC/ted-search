@@ -484,6 +484,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ted-lb-sed-struct-diff"
+version = "0.1.0"
+dependencies = [
+ "indextree",
+ "rustc-hash",
+ "ted-base",
+ "tree-parsing",
+]
+
+[[package]]
 name = "ted-lb-structural"
 version = "0.1.0"
 dependencies = [
@@ -507,6 +517,7 @@ dependencies = [
  "ted-lb-sed",
  "ted-lb-sed-exact",
  "ted-lb-sed-struct",
+ "ted-lb-sed-struct-diff",
  "ted-lb-structural",
  "tree-parsing",
 ]

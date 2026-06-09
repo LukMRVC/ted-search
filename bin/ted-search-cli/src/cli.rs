@@ -3,8 +3,8 @@ use colored::Colorize;
 use std::{fmt::Display, path::PathBuf};
 use ted_search::{
     create_algorithm, create_sed_algorithm, create_sed_exact_algorithm,
-    create_sed_struct_algorithm, Algorithm, BinaryBranchFactory, LabelIntersectionFactory,
-    StructuralFactory, TraversalKind,
+    create_sed_struct_algorithm, create_sed_struct_diff_algorithm, Algorithm, BinaryBranchFactory,
+    LabelIntersectionFactory, StructuralFactory, TraversalKind,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
@@ -17,6 +17,8 @@ pub enum LowerBoundMethods {
     SedExact,
     /// String edit distance with structure lower bound
     SEDStruct,
+    /// Exact bounded TED via TopDiff with SED-STRUCT-filtered top-node pairs
+    SEDStructDiff,
     /// Structural filter lower bound
     Structural,
     /// Binary branch lower bound
@@ -30,6 +32,7 @@ impl Display for LowerBoundMethods {
             LowerBoundMethods::Sed => "Sed",
             LowerBoundMethods::SedExact => "Sed",
             LowerBoundMethods::SEDStruct => "SEDStruct",
+            LowerBoundMethods::SEDStructDiff => "SEDStructDiff",
             LowerBoundMethods::Structural => "Structural",
             LowerBoundMethods::Bib => "Bib",
         };
@@ -105,7 +108,10 @@ impl Cli {
         let traversal_b: TraversalKind = self.sed_traversal_second.into();
 
         match self.method {
-            LowerBoundMethods::Sed | LowerBoundMethods::SedExact | LowerBoundMethods::SEDStruct
+            LowerBoundMethods::Sed
+            | LowerBoundMethods::SedExact
+            | LowerBoundMethods::SEDStruct
+            | LowerBoundMethods::SEDStructDiff
                 if !self.formatted =>
             {
                 println!(
@@ -129,6 +135,9 @@ impl Cli {
             LowerBoundMethods::Sed => create_sed_algorithm(traversal_a, traversal_b),
             LowerBoundMethods::SedExact => create_sed_exact_algorithm(traversal_a, traversal_b),
             LowerBoundMethods::SEDStruct => create_sed_struct_algorithm(traversal_a, traversal_b),
+            LowerBoundMethods::SEDStructDiff => {
+                create_sed_struct_diff_algorithm(traversal_a, traversal_b)
+            }
             LowerBoundMethods::Structural => create_algorithm::<StructuralFactory>(),
             LowerBoundMethods::Bib => create_algorithm::<BinaryBranchFactory>(),
         }

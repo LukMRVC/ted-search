@@ -9,6 +9,8 @@ use ted_lb_sed_exact::SedExactAlgorithm;
 pub use ted_lb_sed_exact::SedExactFactory;
 use ted_lb_sed_struct::StringStructAlgorithm;
 pub use ted_lb_sed_struct::StringStructFactory;
+use ted_lb_sed_struct_diff::StructDiffAlgorithm;
+pub use ted_lb_sed_struct_diff::StructDiffFactory;
 pub use ted_lb_structural::{StructuralAlgorithm, StructuralFactory};
 pub use tree_parsing::{
     parse_dataset, parse_queries, parse_single, tree_to_bracket, update_label_dict, LabelDict,
@@ -20,6 +22,7 @@ pub enum Algorithm {
     Sed(SedAlgorithm),
     SedExact(SedExactAlgorithm),
     StringStruct(StringStructAlgorithm),
+    StructDiff(StructDiffAlgorithm),
     Structural(StructuralAlgorithm),
     BinaryBranch(BinaryBranchAlgorithm),
 }
@@ -33,6 +36,12 @@ impl From<SedAlgorithm> for Algorithm {
 impl From<StringStructAlgorithm> for Algorithm {
     fn from(algo: StringStructAlgorithm) -> Self {
         Algorithm::StringStruct(algo)
+    }
+}
+
+impl From<StructDiffAlgorithm> for Algorithm {
+    fn from(algo: StructDiffAlgorithm) -> Self {
+        Algorithm::StructDiff(algo)
     }
 }
 
@@ -102,6 +111,7 @@ impl Algorithm {
             Algorithm::Sed(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::SedExact(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::StringStruct(algo) => run_search_pipeline(algo, data, queries),
+            Algorithm::StructDiff(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::Structural(algo) => run_search_pipeline(algo, data, queries),
             Algorithm::BinaryBranch(algo) => run_search_pipeline(algo, data, queries),
         }
@@ -130,4 +140,8 @@ pub fn create_sed_exact_algorithm(first: TraversalKind, second: TraversalKind) -
 
 pub fn create_sed_struct_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
     Algorithm::StringStruct(StringStructAlgorithm::new(first, second))
+}
+
+pub fn create_sed_struct_diff_algorithm(first: TraversalKind, second: TraversalKind) -> Algorithm {
+    Algorithm::StructDiff(StructDiffAlgorithm::new(first, second))
 }
