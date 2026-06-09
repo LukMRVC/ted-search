@@ -151,18 +151,27 @@ pub fn first_matrix_cell(
 }
 
 pub fn sed_2(query: &Sed2Index, data: &Sed2Index, threshold: usize) -> usize {
-    // Retain the full first-traversal matrix so individual cells stay readable
-    // (via `first_matrix_cell`) when combining node-aligned values.
+    // Full first-traversal matrix, retained so the final node-aligned cell stays
+    // readable via `first_matrix_cell`.
     let m1 = full_string_edit_distance(&query.first_traversal, &data.first_traversal);
     let first_dist = m1.get(query.first_traversal.len(), data.first_traversal.len());
 
-    // If the first traversal alone already exceeds the scaled cutoff, the sum can
-    // only be larger, so prune early without computing the second traversal.
+    // Stage 1: if the first traversal alone already exceeds the scaled cutoff,
+    // prune early without computing the second traversal.
     if first_dist > threshold * Sed2Algorithm::DIVISOR {
         return first_dist;
     }
+
+    // Stage 2: the second-traversal SED result, plus — only at this final step —
+    // the first matrix's cell for the corresponding ending nodes (the last node
+    // of each second traversal, mapped back to first-traversal positions via
+    // `second_to_first`).
     let second_dist = exact_string_edit_distance(&query.second_traversal, &data.second_traversal);
-    first_dist + second_dist
+    let query_last = query.second_traversal.len() - 1;
+    let data_last = data.second_traversal.len() - 1;
+    let ending_cell = first_matrix_cell(&m1, query, data, query_last, data_last);
+
+    second_dist + ending_cell
 }
 
 pub fn exact_string_edit_distance(s1: &[i32], s2: &[i32]) -> usize {
@@ -397,10 +406,43 @@ mod tests {
             tree_size: 3,
         };
 
-        // first traversal SED = 2, second traversal SED = 2; 2SED sums them.
-        // threshold * DIVISOR = 2 * 1 = 2, and first_dist (2) is not > 2,
-        // so the second traversal is computed and added.
+        // first_dist (m1 corner) = 2, threshold * DIVISOR = 2, so 2 is not > 2 and
+        // we proceed to stage 2. second_dist = 2. The permutation is the identity,
+        // so the ending nodes map to the first matrix's corner: ending_cell = 2.
+        // Final = second_dist + ending_cell = 2 + 2 = 4.
         assert_eq!(sed_2(&t1, &t2, 2), 4);
+    }
+
+    #[test]
+    fn test_sed_2_node_aligned_ending_cell() {
+        // Non-identity permutations, so the ending-node cell is an *interior*
+        // first-matrix cell, not the corner.
+        //
+        // m1 = SED matrix of [1, 2] vs [3, 2]:
+        //        ""  3  2
+        //    ""   0  1  2
+        //     1   1  1  2   <- m1.get(1, 2) = 2
+        //     2   2  2  1
+        //
+        // query ending node (second pos 1) -> first pos 0 -> matrix row 1.
+        // data  ending node (second pos 1) -> first pos 1 -> matrix col 2.
+        // ending_cell = m1.get(1, 2) = 2.
+        // second_dist = SED([5, 6], [7, 6]) = 1.
+        // Final = 1 + 2 = 3 (note: corner-based would have been 1 + 1 = 2).
+        let q = Sed2Index {
+            first_traversal: vec![1, 2],
+            second_traversal: vec![5, 6],
+            second_to_first: vec![1, 0],
+            tree_size: 2,
+        };
+        let d = Sed2Index {
+            first_traversal: vec![3, 2],
+            second_traversal: vec![7, 6],
+            second_to_first: vec![0, 1],
+            tree_size: 2,
+        };
+
+        assert_eq!(sed_2(&q, &d, 5), 3);
     }
 
     #[test]
