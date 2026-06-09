@@ -1,5 +1,7 @@
 /target
 
+.worktrees/
+
 article/datasets/
 article/dataset*
 
@@ -10,3 +12,5 @@ external-sources/build/*
 .vscode/
 *.pdf
 *datasets
+
+docs-articles/

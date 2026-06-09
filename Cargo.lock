@@ -423,6 +423,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ted-distance-topdiff"
+version = "0.1.0"
+dependencies = [
+ "indextree",
+ "rustc-hash",
+ "tree-parsing",
+]
+
+[[package]]
 name = "ted-lb-bib"
 version = "0.1.0"
 dependencies = [

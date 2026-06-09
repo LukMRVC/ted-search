@@ -1,0 +1,9 @@
+[package]
+name = "ted-distance-topdiff"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+indextree.workspace = true
+rustc-hash.workspace = true
+tree-parsing = { version = "0.1.0", path = "../tree-parsing" }
