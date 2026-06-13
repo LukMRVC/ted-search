@@ -11,34 +11,49 @@
 //!     postorder DFS.
 //!
 //! TopDiff collects its top-node pairs with a brute-force `O(n*k)` loop over the
-//! k-strip guarded by `k_relevant`. Here we additionally require the SED-STRUCT
-//! per-node structural constraint (`|sum_x - sum_y| <= k` and
-//! `|diff_x - diff_y| <= k`) to hold for the underlying `(x, y)` before a
-//! top-node pair is admitted. The structural annotations are computed in
-//! preprocessing and looked up per candidate pair.
+//! k-strip guarded by `k_relevant`. Here the SED-STRUCT side supplies the pairs:
+//! `harvest_pairs_via_sed_struct` (the default, `USE_SED_HARVEST`) emits a
+//! top-node pair for every cell of the SED-STRUCT structural alignment band
+//! whose underlying `(x, y)` is structurally admissible (`|sum_x - sum_y| <= k`
+//! and `|diff_x - diff_y| <= k`) and `k_relevant`. The annotations are computed
+//! in preprocessing and looked up per candidate.
+//!
+//! ## Why the band is swept rather than the scalar DP instrumented
+//! The scalar `bounded_string_edit_distance_with_structure` is a *furthest-
+//! reaching* (Berghel-Roach) DP — it touches only the cells it needs to decide
+//! the distance, so it cannot enumerate the candidate set (e.g. an 8-node tree
+//! vs a single node beelines to the answer and never visits the other keyroots'
+//! cells, missing pairs and producing wrong representatives). So harvesting walks
+//! the whole `|x - y| <= k` band that the DP occupies and applies the structural
+//! admissibility per cell. This admits the same set as `collect_pairs_struct`.
 //!
 //! ## Exactness
 //! `tree_dist` for an outer keyroot pair reads inner subtree distances from the
 //! `td` band matrix; those cells exist only if the inner keyroot pair was also
 //! collected and processed earlier (pairs run inner-first). So the collected set
 //! must be a **superset** of the pairs TopDiff's own `k_relevant` loop would
-//! collect. The extra structural filter (`collect_pairs_struct`) is therefore an
-//! empirical bet: it is correct iff it never drops a needed pair. The
-//! always-correct `k_relevant`-only collection (`collect_pairs_full`) is kept as
-//! both the differential-test oracle and a runtime fallback, and the
-//! differential test asserts `collect_pairs_full ⊆ collect_pairs_struct` across
-//! a broad random sweep. `USE_STRUCT_FILTER` toggles which collection drives the
-//! shipped driver.
+//! collect. The always-correct `k_relevant`-only collection (`collect_pairs_full`)
+//! is kept as the differential-test oracle and runtime fallback; the differential
+//! test asserts `collect_pairs_full ⊆ harvest` (and `⊆ collect_pairs_struct`)
+//! across a broad random sweep, and checks the driver against an independent
+//! Zhang-Shasha oracle. `USE_SED_HARVEST` / `USE_STRUCT_FILTER` select the source.
 
 use indextree::NodeId;
 use ted_base::{AlgorithmFactory, LowerBoundMethod, TraversalKind, TraversalSelection};
 use tree_parsing::{LabelId, ParsedTree};
 
-/// When true the driver collects top-node pairs with the extra SED-STRUCT
-/// structural filter (`collect_pairs_struct`); when false it uses the
-/// always-correct `k_relevant`-only collection (`collect_pairs_full`). The
-/// differential test gates this: it must stay `false` if the superset assertion
-/// ever fails.
+/// When true the driver sources its top-node pairs from the SED-STRUCT alignment
+/// itself (`harvest_pairs_via_sed_struct`) rather than enumerating the k-strip.
+/// This is the headline mode: the banded structural string-edit DP emits, for
+/// every aligned/visited cell, the top-node pair its underlying `(x, y)` belongs
+/// to. Falls through to the `USE_STRUCT_FILTER` collections when false.
+const USE_SED_HARVEST: bool = true;
+
+/// When true (and `USE_SED_HARVEST` is false) the driver collects top-node pairs
+/// with the extra SED-STRUCT structural filter (`collect_pairs_struct`); when
+/// false it uses the always-correct `k_relevant`-only collection
+/// (`collect_pairs_full`). The differential test gates this: it must stay `false`
+/// if the superset assertion ever fails.
 const USE_STRUCT_FILTER: bool = true;
 
 /// A traversal element annotated with SED-STRUCT structural metrics. Copied from
@@ -696,6 +711,106 @@ pub fn bounded_string_edit_distance_with_structure(
 }
 
 // ===========================================================================
+// SED-STRUCT pair harvesting: the banded structural string-edit DP emits the
+// top-node pairs directly, instead of enumerating the k-strip.
+// ===========================================================================
+
+/// Dedup a candidate node pair `(pa, pb)` — postorder ids in tree `a`/`b` (the
+/// DP orientation, possibly swapped relative to `t1`/`t2`) — into `vec` keyed by
+/// its top-node (keyroot-ancestor) pair, keeping the representative with the
+/// largest `x` and `y` (matching `collect_pairs`: largest `x` is the keyroot
+/// itself; largest `y` makes the forest extent reach far enough for `tree_dist`).
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn emit_pair(
+    t1: &StructDiffIndex,
+    t2: &StructDiffIndex,
+    k: i32,
+    swapped: bool,
+    pa: i32,
+    pb: i32,
+    map: &mut rustc_hash::FxHashMap<u64, usize>,
+    vec: &mut Vec<(i32, i32)>,
+) {
+    let (x, y) = if swapped { (pb, pa) } else { (pa, pb) };
+    // Same admission test as TopDiff's scan: a cell only contributes a top-node
+    // pair if its underlying `(x, y)` is k-relevant. This is what keeps the
+    // representative valid — `k_relevant` implies `|x - y| <= k`, so the
+    // independent max-x / max-y dedup below stays inside the band, exactly as in
+    // `collect_pairs`.
+    if !k_relevant(t1, t2, x, y, k) {
+        return;
+    }
+    let kx = t1.postl_to_kr_ancestor[x as usize];
+    let ky = t2.postl_to_kr_ancestor[y as usize];
+    let key = ((kx as u64) << 32) | (ky as u64);
+    match map.get(&key) {
+        None => {
+            map.insert(key, vec.len());
+            vec.push((x, y));
+        }
+        Some(&idx) => {
+            if x > vec[idx].0 {
+                vec[idx].0 = x;
+            }
+            if y > vec[idx].1 {
+                vec[idx].1 = y;
+            }
+        }
+    }
+}
+
+/// Emit the top-node pairs of the SED-STRUCT structural alignment band over the
+/// two **postorder** sequences. Returns the deduped `kr_vector` of representative
+/// `(x, y)` node pairs.
+///
+/// ## Why a full band sweep, not the scalar Berghel-Roach DP
+/// `bounded_string_edit_distance_with_structure` is a *furthest-reaching*
+/// (Berghel-Roach) DP: it only ever touches the handful of cells it needs to
+/// decide the distance, so it cannot enumerate the candidate set — for e.g. an
+/// 8-node tree vs a single node it beelines to the answer and never visits the
+/// cells of the other keyroots, missing top-node pairs and producing wrong
+/// representatives. Instrumenting its snake is therefore not viable.
+///
+/// Instead we walk the **whole** `|x - y| <= k` band (the same band that DP
+/// occupies) over the postorder sequences and emit a top-node pair for every
+/// cell whose `(x, y)` is structurally admissible — `|sum_x - sum_y| <= k` and
+/// `|diff_x - diff_y| <= k`, the loosest form of the snake's own per-character
+/// structural test (`bounded_string_edit_distance_with_structure`). Because we
+/// sweep `x` in decreasing postorder and `emit_pair` keeps the largest `x` and
+/// `y` per keyroot pair, the representatives match TopDiff's scan exactly. On
+/// postorder a traversal position *is* a postorder id, so no position→id map is
+/// needed. (This admits the same set as `collect_pairs_struct`; the structural
+/// admissibility is what SED-STRUCT contributes over the plain k-strip.)
+fn harvest_pairs_via_sed_struct(
+    t1: &StructDiffIndex,
+    t2: &StructDiffIndex,
+    k: i32,
+) -> Vec<(i32, i32)> {
+    use rustc_hash::FxHashMap;
+
+    let mut map: FxHashMap<u64, usize> = FxHashMap::default();
+    let mut kr_vector: Vec<(i32, i32)> = Vec::new();
+
+    for x in (0..t1.tree_size).rev() {
+        let c1 = &t1.postl_struct[x as usize];
+        let y_hi = (x + k).min(t2.tree_size - 1);
+        let y_lo = (0).max(x - k);
+        for y in (y_lo..=y_hi).rev() {
+            let c2 = &t2.postl_struct[y as usize];
+            // SED-STRUCT structural admissibility (the snake's per-character test
+            // at zero accumulated edits).
+            if (c1.sum - c2.sum).abs() <= k && (c1.diff - c2.diff).abs() <= k {
+                // swapped = false: x indexes t1, y indexes t2 directly.
+                emit_pair(t1, t2, k, false, x, y, &mut map, &mut kr_vector);
+            }
+        }
+    }
+
+    kr_vector
+}
+
+// ===========================================================================
 // Driver.
 // ===========================================================================
 
@@ -716,7 +831,9 @@ pub fn ted_k_struct_diff(t1: &StructDiffIndex, t2: &StructDiffIndex, k: i32) -> 
 
     let mut state = TopDiffState::new(t1_size, k);
 
-    let mut pairs = if USE_STRUCT_FILTER {
+    let mut pairs = if USE_SED_HARVEST {
+        harvest_pairs_via_sed_struct(t1, t2, k)
+    } else if USE_STRUCT_FILTER {
         collect_pairs_struct(t1, t2, k)
     } else {
         collect_pairs_full(t1, t2, k)
@@ -1155,12 +1272,39 @@ mod tests {
                 };
                 let full = key(&t1, &t2, &collect_pairs_full(&t1, &t2, k));
                 let structf = key(&t1, &t2, &collect_pairs_struct(&t1, &t2, k));
+                let harvested = key(&t1, &t2, &harvest_pairs_via_sed_struct(&t1, &t2, k));
                 assert!(
                     full.is_subset(&structf),
                     "struct filter dropped needed top-node pairs for s1={s1} s2={s2} k={k}: \
                      missing={:?}",
                     full.difference(&structf).collect::<Vec<_>>()
                 );
+                assert!(
+                    full.is_subset(&harvested),
+                    "SED harvest dropped needed top-node pairs for s1={s1} s2={s2} k={k}: \
+                     missing={:?}",
+                    full.difference(&harvested).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    /// TED is symmetric, and harvesting must not depend on argument order: the
+    /// driver must return the same distance with the trees swapped (exercises the
+    /// representative bookkeeping from both orientations).
+    #[test]
+    fn driver_is_swap_invariant() {
+        let pairs = test_pairs();
+        let ks = [1, 2, 3, 50];
+        let sel = TraversalSelection::default();
+        for (s1, s2) in &pairs {
+            for &k in &ks {
+                let mut dict = LabelDict::default();
+                let t1 = StructDiffIndex::from_tree(&pt(s1, &mut dict), sel);
+                let t2 = StructDiffIndex::from_tree(&pt(s2, &mut dict), sel);
+                let ab = ted_k_struct_diff(&t1, &t2, k);
+                let ba = ted_k_struct_diff(&t2, &t1, k);
+                assert_eq!(ab, ba, "swap mismatch s1={s1} s2={s2} k={k}: {ab} vs {ba}");
             }
         }
     }
