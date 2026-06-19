@@ -86,7 +86,7 @@ pub struct Cli {
 
     /// Total number of runs for each method
     /// Then the lowest duration of all runs is taken as result
-    #[arg(long = "runs", short = 'r', default_value_t = 3)]
+    #[arg(long = "runs", short = 'r', default_value_t = 1)]
     pub runs: usize,
 
     /// Path to the output candidates file

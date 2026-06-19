@@ -42,19 +42,28 @@ use indextree::NodeId;
 use ted_base::{AlgorithmFactory, LowerBoundMethod, TraversalKind, TraversalSelection};
 use tree_parsing::{LabelId, ParsedTree};
 
-/// When true the driver sources its top-node pairs from the SED-STRUCT alignment
-/// itself (`harvest_pairs_via_sed_struct`) rather than enumerating the k-strip.
-/// This is the headline mode: the banded structural string-edit DP emits, for
-/// every aligned/visited cell, the top-node pair its underlying `(x, y)` belongs
-/// to. Falls through to the `USE_STRUCT_FILTER` collections when false.
-const USE_SED_HARVEST: bool = true;
+/// Where the driver gets the top-node pairs it feeds to TopDiff's `tree_dist`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PairSource {
+    /// TopDiff's exact `k_relevant`-only k-strip scan. Always correct; the oracle.
+    Full,
+    /// `k_relevant` plus the SED-STRUCT structural admissibility filter (a scan,
+    /// no DP). Exact (superset of `Full`); identical to `StructBand`.
+    Struct,
+    /// Structural-admissibility band sweep. Exact (superset of `Full`).
+    StructBand,
+    /// **Real SED**: a genuine banded structural string-edit DP (forward+backward)
+    /// over the postorder sequences. Its corner cell is the SED lower bound, and
+    /// the node pairs lying on some `<= k` alignment are projected to top-node
+    /// pairs. NOTE: this is *not* guaranteed to be a superset of the needed pairs,
+    /// so the resulting TED can over-estimate (return `k+1` when the true TED is
+    /// `<= k`). Measured against the oracle in the tests; not the default.
+    SedAlignment,
+}
 
-/// When true (and `USE_SED_HARVEST` is false) the driver collects top-node pairs
-/// with the extra SED-STRUCT structural filter (`collect_pairs_struct`); when
-/// false it uses the always-correct `k_relevant`-only collection
-/// (`collect_pairs_full`). The differential test gates this: it must stay `false`
-/// if the superset assertion ever fails.
-const USE_STRUCT_FILTER: bool = true;
+/// Default source feeding `tree_dist`. `StructBand` is exact and the shipped
+/// path; flip to `SedAlignment` to drive TopDiff from the real SED alignment.
+const PAIR_SOURCE: PairSource = PairSource::StructBand;
 
 /// A traversal element annotated with SED-STRUCT structural metrics. Copied from
 /// `ted_lb_sed_struct::TraversalCharacter`.
@@ -536,8 +545,7 @@ fn collect_pairs(
             if k_relevant(t1, t2, x, y, k)
                 && (!use_struct_filter || struct_pair_ok(t1, t2, x, y, k))
             {
-                let key =
-                    ((x_keyroot as u64) << 32) | (t2.postl_to_kr_ancestor[y as usize] as u64);
+                let key = ((x_keyroot as u64) << 32) | (t2.postl_to_kr_ancestor[y as usize] as u64);
                 match kr_pair_to_index.get(&key) {
                     None => {
                         kr_pair_to_index.insert(key, kr_vector.len());
@@ -811,12 +819,163 @@ fn harvest_pairs_via_sed_struct(
 }
 
 // ===========================================================================
+// Real SED: a genuine banded structural string-edit DP over the postorder
+// sequences. Forward + backward passes give the SED lower bound and let us read
+// off the node pairs that lie on some `<= k` structural alignment.
+// ===========================================================================
+
+/// Sentinel for "cost already exceeds `k`" — keeps the DP in `i32` without
+/// overflow while capping anything past the budget.
+const SED_INF: i32 = 1 << 28;
+
+/// Substitution is permitted only between structurally compatible nodes (the
+/// loosest, position-independent form of the SED-STRUCT per-character test).
+#[inline]
+fn sed_sub_compatible(c1: &TraversalCharacter, c2: &TraversalCharacter, k: i32) -> bool {
+    (c1.sum - c2.sum).abs() <= k && (c1.diff - c2.diff).abs() <= k
+}
+
+/// Forward structural string-edit DP. `f[i][j]` = structural SED between the
+/// postorder prefixes `s1[..i]` and `s2[..j]`, capped to `SED_INF` once it passes
+/// `k`. Diagonal (substitution) moves are allowed only between structurally
+/// compatible nodes — cost `0` if labels match, else `1` (rename); incompatible
+/// nodes must be aligned via indels. `f[n1][n2]` is the whole-sequence SED LB.
+fn sed_forward(s1: &[TraversalCharacter], s2: &[TraversalCharacter], k: i32) -> Vec<Vec<i32>> {
+    let (n1, n2) = (s1.len(), s2.len());
+    let mut f = vec![vec![SED_INF; n2 + 1]; n1 + 1];
+    f[0][0] = 0;
+    for i in 0..=n1 {
+        for j in 0..=n2 {
+            if i == 0 && j == 0 {
+                continue;
+            }
+            let mut best = SED_INF;
+            if i > 0 {
+                best = best.min(f[i - 1][j] + 1);
+            }
+            if j > 0 {
+                best = best.min(f[i][j - 1] + 1);
+            }
+            if i > 0 && j > 0 && f[i - 1][j - 1] < SED_INF {
+                let (c1, c2) = (&s1[i - 1], &s2[j - 1]);
+                if sed_sub_compatible(c1, c2, k) {
+                    let sub = i32::from(c1.char != c2.char);
+                    best = best.min(f[i - 1][j - 1] + sub);
+                }
+            }
+            f[i][j] = if best > k { SED_INF } else { best };
+        }
+    }
+    f
+}
+
+/// Backward structural string-edit DP. `b[i][j]` = structural SED between the
+/// postorder suffixes `s1[i..]` and `s2[j..]`. Same recurrence as `sed_forward`,
+/// filled from the bottom-right.
+fn sed_backward(s1: &[TraversalCharacter], s2: &[TraversalCharacter], k: i32) -> Vec<Vec<i32>> {
+    let (n1, n2) = (s1.len(), s2.len());
+    let mut b = vec![vec![SED_INF; n2 + 1]; n1 + 1];
+    b[n1][n2] = 0;
+    for i in (0..=n1).rev() {
+        for j in (0..=n2).rev() {
+            if i == n1 && j == n2 {
+                continue;
+            }
+            let mut best = SED_INF;
+            if i < n1 {
+                best = best.min(b[i + 1][j] + 1);
+            }
+            if j < n2 {
+                best = best.min(b[i][j + 1] + 1);
+            }
+            if i < n1 && j < n2 && b[i + 1][j + 1] < SED_INF {
+                let (c1, c2) = (&s1[i], &s2[j]);
+                if sed_sub_compatible(c1, c2, k) {
+                    let sub = i32::from(c1.char != c2.char);
+                    best = best.min(b[i + 1][j + 1] + sub);
+                }
+            }
+            b[i][j] = if best > k { SED_INF } else { best };
+        }
+    }
+    b
+}
+
+/// The real SED computation, serving both roles: returns the SED **lower bound**
+/// `f[n1][n2]` (capped to `k+1`) and the **top-node pairs** generated from the
+/// alignment. A node pair `(x, y)` is emitted when it sits on some `<= k`
+/// structural alignment — i.e. `f[x][y] + sub(x,y) + b[x+1][y+1] <= k` — and is
+/// projected to its top-node pair via `emit_pair` (`k_relevant` + dedup).
+///
+/// Runs on the **postorder** sequences (position == postorder id), so emitted
+/// indices feed `tree_dist` directly. Sweeping `x` in decreasing postorder makes
+/// the dedup pick the same representative form as TopDiff.
+fn sed_alignment(t1: &StructDiffIndex, t2: &StructDiffIndex, k: i32) -> (i32, Vec<(i32, i32)>) {
+    use rustc_hash::FxHashMap;
+
+    let s1 = &t1.postl_struct;
+    let s2 = &t2.postl_struct;
+    let (n1, n2) = (s1.len(), s2.len());
+
+    let f = sed_forward(s1, s2, k);
+    let lb = f[n1][n2].min(k + 1);
+    if lb > k {
+        return (lb, Vec::new());
+    }
+
+    let b = sed_backward(s1, s2, k);
+    let mut map: FxHashMap<u64, usize> = FxHashMap::default();
+    let mut kr_vector: Vec<(i32, i32)> = Vec::new();
+
+    for i in (1..=n1).rev() {
+        for j in (1..=n2).rev() {
+            let (c1, c2) = (&s1[i - 1], &s2[j - 1]);
+            if !sed_sub_compatible(c1, c2, k) {
+                continue;
+            }
+            let before = f[i - 1][j - 1];
+            let after = b[i][j];
+            if before >= SED_INF || after >= SED_INF {
+                continue;
+            }
+            let sub = i32::from(c1.char != c2.char);
+            if before + sub + after <= k {
+                // node x = i-1 in t1, y = j-1 in t2 lie on a <= k alignment.
+                emit_pair(
+                    t1,
+                    t2,
+                    k,
+                    false,
+                    (i - 1) as i32,
+                    (j - 1) as i32,
+                    &mut map,
+                    &mut kr_vector,
+                );
+            }
+        }
+    }
+
+    (lb, kr_vector)
+}
+
+// ===========================================================================
 // Driver.
 // ===========================================================================
 
-/// Exact bounded TED via TopDiff with SED-STRUCT-filtered top-node pairs.
-/// Returns the exact TED when `<= k`, otherwise `k + 1`.
+/// Exact bounded TED via TopDiff with SED-STRUCT-derived top-node pairs.
+/// Returns the exact TED when `<= k`, otherwise `k + 1`. Uses the default
+/// [`PAIR_SOURCE`].
 pub fn ted_k_struct_diff(t1: &StructDiffIndex, t2: &StructDiffIndex, k: i32) -> i32 {
+    ted_k_with_source(t1, t2, k, PAIR_SOURCE)
+}
+
+/// Driver parameterised by the top-node pair source (so tests can exercise each).
+pub fn ted_k_with_source(
+    t1: &StructDiffIndex,
+    t2: &StructDiffIndex,
+    k: i32,
+    source: PairSource,
+) -> i32 {
     let t1_size = t1.tree_size;
     let t2_size = t2.tree_size;
 
@@ -831,12 +990,11 @@ pub fn ted_k_struct_diff(t1: &StructDiffIndex, t2: &StructDiffIndex, k: i32) -> 
 
     let mut state = TopDiffState::new(t1_size, k);
 
-    let mut pairs = if USE_SED_HARVEST {
-        harvest_pairs_via_sed_struct(t1, t2, k)
-    } else if USE_STRUCT_FILTER {
-        collect_pairs_struct(t1, t2, k)
-    } else {
-        collect_pairs_full(t1, t2, k)
+    let mut pairs = match source {
+        PairSource::Full => collect_pairs_full(t1, t2, k),
+        PairSource::Struct => collect_pairs_struct(t1, t2, k),
+        PairSource::StructBand => harvest_pairs_via_sed_struct(t1, t2, k),
+        PairSource::SedAlignment => sed_alignment(t1, t2, k).1,
     };
 
     // Inner-first ordering: ascending (x, y) so every inner keyroot pair (smaller
@@ -991,7 +1149,14 @@ mod tests {
         // b: following = 3-(1+1)=1, ancestor=1 -> sum=2, diff=0
         // c: following = 3-(2+1)=0, ancestor=1 -> sum=1, diff=-1
         // a: following = 3-(3+0)=0, ancestor=0 -> sum=0, diff=0
-        assert_eq!(idx.postl_struct[0], TraversalCharacter { char: idx.postl_struct[0].char, sum: 2, diff: 0 });
+        assert_eq!(
+            idx.postl_struct[0],
+            TraversalCharacter {
+                char: idx.postl_struct[0].char,
+                sum: 2,
+                diff: 0
+            }
+        );
         assert_eq!(idx.postl_struct[1].sum, 1);
         assert_eq!(idx.postl_struct[1].diff, -1);
         assert_eq!(idx.postl_struct[2].sum, 0);
@@ -1242,7 +1407,10 @@ mod tests {
                 checked += 1;
             }
         }
-        assert!(checked >= 200, "expected a broad sweep, only checked {checked}");
+        assert!(
+            checked >= 200,
+            "expected a broad sweep, only checked {checked}"
+        );
     }
 
     /// The research gate: the structural-filtered collection must be a superset
@@ -1307,5 +1475,66 @@ mod tests {
                 assert_eq!(ab, ba, "swap mismatch s1={s1} s2={s2} k={k}: {ab} vs {ba}");
             }
         }
+    }
+
+    /// The real SED forward DP must be a sound lower bound: `f[n1][n2] <= TED`.
+    #[test]
+    fn sed_forward_is_sound_lower_bound() {
+        let pairs = test_pairs();
+        let ks = [1, 2, 3, 50];
+        let sel = TraversalSelection::default();
+        for (s1, s2) in &pairs {
+            for &k in &ks {
+                let mut dict = LabelDict::default();
+                let t1 = StructDiffIndex::from_tree(&pt(s1, &mut dict), sel);
+                let t2 = StructDiffIndex::from_tree(&pt(s2, &mut dict), sel);
+                let f = sed_forward(&t1.postl_struct, &t2.postl_struct, k);
+                let lb = f[t1.postl_struct.len()][t2.postl_struct.len()].min(k + 1);
+                let exact = oracle(s1, s2, k); // capped to k+1
+                assert!(
+                    lb <= exact || (exact == k + 1 && lb == k + 1),
+                    "SED LB {lb} exceeds TED {exact} for s1={s1} s2={s2} k={k}"
+                );
+            }
+        }
+    }
+
+    /// Measure the `SedAlignment` source against the oracle: it must never
+    /// *under*-estimate (soundness — a finite result must equal the true TED),
+    /// but it may over-estimate (return `k+1` when the true TED is `<= k`) when
+    /// the alignment misses a needed top-node pair. Prints the false-negative
+    /// rate so we can see empirically how usable SED-driven generation is.
+    #[test]
+    fn measure_sed_alignment_vs_oracle() {
+        let pairs = test_pairs();
+        let ks = [1, 2, 3, 50];
+        let sel = TraversalSelection::default();
+        let (mut total, mut exact_hits, mut false_negs) = (0usize, 0usize, 0usize);
+        for (s1, s2) in &pairs {
+            for &k in &ks {
+                let mut dict = LabelDict::default();
+                let t1 = StructDiffIndex::from_tree(&pt(s1, &mut dict), sel);
+                let t2 = StructDiffIndex::from_tree(&pt(s2, &mut dict), sel);
+                let got = ted_k_with_source(&t1, &t2, k, PairSource::SedAlignment);
+                let want = oracle(s1, s2, k);
+                total += 1;
+                if got == want {
+                    exact_hits += 1;
+                } else {
+                    // The only acceptable disagreement is an over-estimate.
+                    assert!(
+                        got > want && want <= k,
+                        "SedAlignment UNDER-estimated (unsound): got={got} want={want} \
+                         s1={s1} s2={s2} k={k}"
+                    );
+                    false_negs += 1;
+                }
+            }
+        }
+        println!(
+            "SedAlignment: {exact_hits}/{total} exact, {false_negs} false-negatives \
+             ({:.1}% miss rate)",
+            100.0 * false_negs as f64 / total as f64
+        );
     }
 }
