@@ -14,3 +14,6 @@ external-sources/build/*
 *datasets
 
 docs-articles/
+
+.cache/
+build/

@@ -363,6 +363,27 @@ pub fn k_relevant(t1: &StructDiffIndex, t2: &StructDiffIndex, x: i32, y: i32, k:
     lower_bound <= k
 }
 
+/// Maximum `e_budget` over all node pairs on the left paths (leftmost-child
+/// chains) of the keyroot representative `(x_l, y_l)`. A single
+/// `tree_dist(x_l, y_l, e_max)` fills the `td` cells for every left-path node
+/// pair, each of which an enclosing keyroot pair may later read; provisioning
+/// the call with only the representative's `e_budget(x_l, y_l, k)`
+/// under-budgets those inner cells and yields `k+1` when the true TED is `<= k`.
+/// Ports the `compute_e_max` branch of the C++ `touzet_kr_set_tree_index_impl.h`.
+fn e_max_over_left_paths(t1: &StructDiffIndex, t2: &StructDiffIndex, x_l: i32, y_l: i32, k: i32) -> i32 {
+    let mut e_max = 0;
+    let mut top_x = x_l;
+    while top_x > -1 {
+        let mut top_y = y_l;
+        while top_y > -1 {
+            e_max = e_max.max(e_budget(t1, t2, top_x, top_y, k));
+            top_y = t2.postl_to_lch[top_y as usize];
+        }
+        top_x = t1.postl_to_lch[top_x as usize];
+    }
+    e_max
+}
+
 /// The extra SED-STRUCT structural filter for a candidate node pair `(x, y)`,
 /// looked up from the precomputed postorder annotations. Loosest form of the
 /// per-character constraint used in `bounded_string_edit_distance_with_structure`.
@@ -1002,7 +1023,9 @@ pub fn ted_k_with_source(
     pairs.sort_unstable();
 
     for &(x_l, y_l) in &pairs {
-        let e_max = e_budget(t1, t2, x_l, y_l, k);
+        // e_max must cover every inner (left-path) node pair this forest DP
+        // computes, not just the representative; see `e_max_over_left_paths`.
+        let e_max = e_max_over_left_paths(t1, t2, x_l, y_l, k);
         let d = state.tree_dist(t1, t2, x_l, y_l, k, e_max);
         state.td.set(x_l as usize, y_l as usize, d);
     }
@@ -1377,11 +1400,18 @@ mod tests {
             ("{a{b{c}}}".into(), "{a{b}{c}}".into()),
             ("{r{a}{b}{c}{d}}".into(), "{r{a{b{c{d}}}}}".into()),
             ("{a{b{c}}{d{e}}}".into(), "{a{b{c}{d}}{e}}".into()),
+            // Regression for the left-path e_max under-provisioning bug (true TED
+            // == k at the boundary returned k+1). See `e_max_over_left_paths`.
+            ("{a{b}}".into(), "{a{c}{b{a}}}".into()),
+            ("{c{b}{a{a}}}".into(), "{c{d{c}}}".into()),
+            ("{b{b{b}{c{d}}}}".into(), "{b{c}}".into()),
         ];
+        // Deeper trees (was 8): the left-path budget gap grows with depth, so the
+        // boundary bug only surfaces on deeper inputs.
         let mut rng = Lcg(0x1234_5678_9abc_def0);
-        for _ in 0..60 {
-            let a = random_tree(&mut rng, 8);
-            let b = random_tree(&mut rng, 8);
+        for _ in 0..200 {
+            let a = random_tree(&mut rng, 22);
+            let b = random_tree(&mut rng, 22);
             pairs.push((a, b));
         }
         pairs
@@ -1390,7 +1420,7 @@ mod tests {
     #[test]
     fn differential_vs_zhang_shasha_oracle() {
         let pairs = test_pairs();
-        let ks = [1, 2, 3, 50];
+        let ks = [1, 2, 3, 4, 5, 8, 50];
         let sel = TraversalSelection::default();
         let mut checked = 0usize;
         for (s1, s2) in &pairs {

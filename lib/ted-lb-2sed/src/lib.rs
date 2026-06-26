@@ -19,9 +19,9 @@ impl Sed2Algorithm {
 impl LowerBoundMethod for Sed2Algorithm {
     const NAME: &'static str = "2SED";
     const SUPPORTS_INDEX: bool = false;
-    // The lower bound sums two single-traversal SEDs, each of which bounds TED,
-    // so the sum bounds 1 * TED. The search pipeline must therefore compare it
-    // against 1 * threshold.
+    // The lower bound is the min-bottleneck of the combined `C_pre_sum` lattice
+    // minus one (see `sed_2`); it directly bounds TED, so the search pipeline
+    // compares it against 1 * threshold.
     const DIVISOR: usize = 1;
 
     type PreprocessedDataType = Sed2Index;
@@ -130,48 +130,92 @@ pub fn full_string_edit_distance(s1: &[i32], s2: &[i32]) -> FullMatrix {
     FullMatrix { rows, cols, data }
 }
 
-/// Reads the first-traversal matrix cell for the node pair that sits at the
-/// given positions in the **second** traversal.
-///
-/// `query_pos2` / `data_pos2` are positions in the query's and data tree's
-/// second traversals. The `second_to_first` lookup tables translate those into
-/// the corresponding first-traversal positions, and the matrix is indexed at
-/// `+1` because row/column 0 is the empty-prefix row/column.
-#[inline]
-pub fn first_matrix_cell(
-    m1: &FullMatrix,
-    query: &Sed2Index,
-    data: &Sed2Index,
-    query_pos2: usize,
-    data_pos2: usize,
-) -> usize {
-    let i1 = query.second_to_first[query_pos2];
-    let j1 = data.second_to_first[data_pos2];
-    m1.get(i1 + 1, j1 + 1)
+/// Inverts a permutation. Given `second_to_first` (second-traversal position ->
+/// first-traversal position), returns `first_to_second` (first-traversal
+/// position -> second-traversal position).
+fn invert_permutation(second_to_first: &[usize]) -> Vec<usize> {
+    let mut first_to_second = vec![0usize; second_to_first.len()];
+    for (second_pos, &first_pos) in second_to_first.iter().enumerate() {
+        first_to_second[first_pos] = second_pos;
+    }
+    first_to_second
 }
 
-pub fn sed_2(query: &Sed2Index, data: &Sed2Index, threshold: usize) -> usize {
-    // Full first-traversal matrix, retained so the final node-aligned cell stays
-    // readable via `first_matrix_cell`.
-    let m1 = full_string_edit_distance(&query.first_traversal, &data.first_traversal);
-    let first_dist = m1.get(query.first_traversal.len(), data.first_traversal.len());
+/// The 2SED lower bound: the min-bottleneck value of the `C_pre_sum` lattice,
+/// minus one.
+///
+/// `C_pre_sum[i][j]` sums the two single-traversal SED matrices for the node
+/// pair aligned at first-traversal prefix lengths `i` and `j`: the first matrix
+/// cell `C_pre[i][j]` plus the second matrix cell `C_post` for the *same* two
+/// nodes (located via the `second_to_first` permutation, not the raw index).
+///
+/// A monotone path (right/down/diagonal) from `(0,0)` to `(n,m)` is an alignment
+/// of the two trees' first traversals; [`min_bottleneck`] returns the cheapest
+/// achievable "largest cell on the path". The final `-1` cancels the node the
+/// bottleneck cut double-counts: that node lies in both the first-traversal
+/// prefix and the second-traversal prefix, so its edit is paid in both matrices.
+pub fn sed_2(query: &Sed2Index, data: &Sed2Index, _threshold: usize) -> usize {
+    let c_pre = full_string_edit_distance(&query.first_traversal, &data.first_traversal);
+    let c_post = full_string_edit_distance(&query.second_traversal, &data.second_traversal);
+    min_bottleneck(query, data, &c_pre, &c_post).saturating_sub(1)
+}
 
-    // Stage 1: if the first traversal alone already exceeds the scaled cutoff,
-    // prune early without computing the second traversal.
-    if first_dist > threshold * Sed2Algorithm::DIVISOR {
-        return first_dist;
+/// Minimum-bottleneck value of the implicit `C_pre_sum` lattice: over every
+/// monotone path from `(0,0)` to `(n,m)` (steps: right, down, diagonal), the
+/// smallest achievable maximum cell value.
+///
+/// `C_pre_sum` is never materialized; each cell is read on demand via [`cell`].
+/// The DP runs in row-major (topological) order, which is correct for this DAG
+/// with diagonal edges — `dp[i][j]` is the best bottleneck of any path reaching
+/// `(i, j)`, i.e. the max of the cheapest incoming path and the cell itself.
+pub fn min_bottleneck(
+    query: &Sed2Index,
+    data: &Sed2Index,
+    c_pre: &FullMatrix,
+    c_post: &FullMatrix,
+) -> usize {
+    let n = query.first_traversal.len();
+    let m = data.first_traversal.len();
+    let first_to_second_q = invert_permutation(&query.second_to_first);
+    let first_to_second_d = invert_permutation(&data.second_to_first);
+
+    // C_pre_sum cell at first-traversal prefix lengths (i, j). The C_post term is
+    // read at the second-traversal positions of the *same* two nodes (+1 because
+    // row/column 0 is the empty prefix), so the matrices are summed per node. On
+    // the empty-prefix boundary (i == 0 or j == 0) there is no node to map, so
+    // the positional cell is used directly.
+    let cell = |i: usize, j: usize| -> usize {
+        let post = if i == 0 || j == 0 {
+            c_post.get(i, j)
+        } else {
+            c_post.get(first_to_second_q[i - 1] + 1, first_to_second_d[j - 1] + 1)
+        };
+        c_pre.get(i, j) + post
+    };
+
+    let rows = n + 1;
+    let cols = m + 1;
+    let mut dp = vec![usize::MAX; rows * cols];
+    dp[0] = cell(0, 0);
+    for i in 0..rows {
+        for j in 0..cols {
+            if i == 0 && j == 0 {
+                continue;
+            }
+            let mut best = usize::MAX;
+            if i > 0 {
+                best = best.min(dp[(i - 1) * cols + j]);
+            }
+            if j > 0 {
+                best = best.min(dp[i * cols + (j - 1)]);
+            }
+            if i > 0 && j > 0 {
+                best = best.min(dp[(i - 1) * cols + (j - 1)]);
+            }
+            dp[i * cols + j] = best.max(cell(i, j));
+        }
     }
-
-    // Stage 2: the second-traversal SED result, plus — only at this final step —
-    // the first matrix's cell for the corresponding ending nodes (the last node
-    // of each second traversal, mapped back to first-traversal positions via
-    // `second_to_first`).
-    let second_dist = exact_string_edit_distance(&query.second_traversal, &data.second_traversal);
-    let query_last = query.second_traversal.len() - 1;
-    let data_last = data.second_traversal.len() - 1;
-    let ending_cell = first_matrix_cell(&m1, query, data, query_last, data_last);
-
-    second_dist + ending_cell
+    dp[(rows - 1) * cols + (cols - 1)]
 }
 
 pub fn exact_string_edit_distance(s1: &[i32], s2: &[i32]) -> usize {
@@ -370,28 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn test_first_matrix_cell_lookup() {
-        // Hand-built indices: the node at second-traversal position 0 sits at
-        // first-traversal position 1 for both trees, so the lookup must read the
-        // first matrix at (1+1, 1+1) = (2, 2).
-        let q = Sed2Index {
-            first_traversal: vec![1, 2, 3],
-            second_traversal: vec![2, 3, 1],
-            second_to_first: vec![1, 2, 0],
-            tree_size: 3,
-        };
-        let d = Sed2Index {
-            first_traversal: vec![1, 3, 4],
-            second_traversal: vec![3, 4, 1],
-            second_to_first: vec![1, 2, 0],
-            tree_size: 3,
-        };
-        let m1 = full_string_edit_distance(&q.first_traversal, &d.first_traversal);
-
-        assert_eq!(first_matrix_cell(&m1, &q, &d, 0, 0), m1.get(2, 2));
-    }
-
-    #[test]
     fn test_sed_2_on_indices() {
         let t1 = Sed2Index {
             first_traversal: vec![1, 2, 3],
@@ -406,62 +428,99 @@ mod tests {
             tree_size: 3,
         };
 
-        // first_dist (m1 corner) = 2, threshold * DIVISOR = 2, so 2 is not > 2 and
-        // we proceed to stage 2. second_dist = 2. The permutation is the identity,
-        // so the ending nodes map to the first matrix's corner: ending_cell = 2.
-        // Final = second_dist + ending_cell = 2 + 2 = 4.
-        assert_eq!(sed_2(&t1, &t2, 2), 4);
+        // Identity permutations, so C_pre_sum is the elementwise sum of the two
+        // matrices:
+        //     0 2 4 6
+        //     2 1 3 5
+        //     4 2 3 5
+        //     6 4 3 4
+        // The cheapest monotone path (the diagonal: 0, 1, 3, 4) has bottleneck 4,
+        // and every path ends at the corner cell 4, so min_bottleneck = 4.
+        // Final = min_bottleneck - 1 = 3.
+        assert_eq!(sed_2(&t1, &t2, 100), 3);
     }
 
     #[test]
-    fn test_sed_2_node_aligned_ending_cell() {
-        // Non-identity permutations, so the ending-node cell is an *interior*
-        // first-matrix cell, not the corner.
+    fn verify_two_tree_example() {
+        // Hand-worked example (preorder + reversed-postorder traversals).
         //
-        // m1 = SED matrix of [1, 2] vs [3, 2]:
-        //        ""  3  2
-        //    ""   0  1  2
-        //     1   1  1  2   <- m1.get(1, 2) = 2
-        //     2   2  2  1
+        //   T1: f -> x -> (k, u, h)        T2: x -> h -> (o -> m, r)
         //
-        // query ending node (second pos 1) -> first pos 0 -> matrix row 1.
-        // data  ending node (second pos 1) -> first pos 1 -> matrix col 2.
-        // ending_cell = m1.get(1, 2) = 2.
-        // second_dist = SED([5, 6], [7, 6]) = 1.
-        // Final = 1 + 2 = 3 (note: corner-based would have been 1 + 1 = 2).
-        let q = Sed2Index {
-            first_traversal: vec![1, 2],
-            second_traversal: vec![5, 6],
-            second_to_first: vec![1, 0],
-            tree_size: 2,
-        };
-        let d = Sed2Index {
-            first_traversal: vec![3, 2],
-            second_traversal: vec![7, 6],
-            second_to_first: vec![0, 1],
-            tree_size: 2,
-        };
+        // reversed-postorder here = reverse(preorder), since `reversed_post` is
+        // pushed at node entry and then reversed.
+        let mut ld = LabelDict::default();
+        let t1 = parse_single("{f{x{k}{u}{h}}}".to_string(), &mut ld);
+        let t2 = parse_single("{x{h{o{m}}{r}}}".to_string(), &mut ld);
 
-        assert_eq!(sed_2(&q, &d, 5), 3);
+        let algo = Sed2Algorithm::new(TraversalKind::Preorder, TraversalKind::ReversedPostorder);
+        let mut idx = algo.preprocess(&[t1, t2]).unwrap();
+        let d2 = idx.remove(1);
+        let q1 = idx.remove(0);
+
+        // reversed-postorder is the exact reverse of preorder for a 5-node tree.
+        assert_eq!(q1.second_to_first, vec![4, 3, 2, 1, 0]);
+        assert_eq!(d2.second_to_first, vec![4, 3, 2, 1, 0]);
+
+        // C_pre: full SED matrix of the preorder label sequences.
+        let m_pre = full_string_edit_distance(&q1.first_traversal, &d2.first_traversal);
+        #[rustfmt::skip]
+        let expected_pre = [
+            [0, 1, 2, 3, 4, 5],
+            [1, 1, 2, 3, 4, 5],
+            [2, 1, 2, 3, 4, 5],
+            [3, 2, 2, 3, 4, 5],
+            [4, 3, 3, 3, 4, 5],
+            [5, 4, 3, 4, 4, 5],
+        ];
+        for (i, row) in expected_pre.iter().enumerate() {
+            for (j, &v) in row.iter().enumerate() {
+                assert_eq!(m_pre.get(i, j), v, "C_pre[{i},{j}]");
+            }
+        }
+
+        // C_post: full SED matrix of the reversed-postorder label sequences.
+        let m_post = full_string_edit_distance(&q1.second_traversal, &d2.second_traversal);
+        #[rustfmt::skip]
+        let expected_post = [
+            [0, 1, 2, 3, 4, 5],
+            [1, 1, 2, 3, 3, 4],
+            [2, 2, 2, 3, 4, 4],
+            [3, 3, 3, 3, 4, 5],
+            [4, 4, 4, 4, 4, 4],
+            [5, 5, 5, 5, 5, 5],
+        ];
+        for (i, row) in expected_post.iter().enumerate() {
+            for (j, &v) in row.iter().enumerate() {
+                assert_eq!(m_post.get(i, j), v, "C_post[{i},{j}]");
+            }
+        }
+
+        // min_bottleneck over C_pre_sum is 6 (diagonal of all-6 cells); the lower
+        // bound is min_bottleneck - 1 = 5. Exact TED for this pair is 6, so 5 is a
+        // valid (non-exceeding) lower bound.
+        assert_eq!(sed_2(&q1, &d2, 100), 5);
     }
 
     #[test]
-    fn test_sed_2_early_return() {
-        // first traversal SED alone exceeds threshold * DIVISOR (= 1 * 1 = 1),
-        // so the second traversal is never computed and first_dist is returned.
-        let t1 = Sed2Index {
-            first_traversal: vec![1, 2, 3, 4],
-            second_traversal: vec![0, 0, 0, 0],
-            second_to_first: vec![0, 1, 2, 3],
-            tree_size: 4,
-        };
-        let t2 = Sed2Index {
-            first_traversal: vec![5, 6, 7, 8],
-            second_traversal: vec![9, 9, 9, 9],
-            second_to_first: vec![0, 1, 2, 3],
-            tree_size: 4,
-        };
+    fn verify_two_tree_example_b() {
+        // Second hand-worked pair, which previously exposed an over-estimate.
+        //
+        //   T1: y -> (c, a -> d)        T2: k -> (c, d -> (w, i))
+        //
+        // min_bottleneck over C_pre_sum is 5; the lower bound is 5 - 1 = 4, which
+        // exactly matches the true TED of 4 (a relabel y->k, a->d, d->w and an
+        // insert of i). Without the -1 the bound would be 5 > TED, i.e. invalid.
+        let mut ld = LabelDict::default();
+        let t1 = parse_single("{y{c}{a{d}}}".to_string(), &mut ld);
+        let t2 = parse_single("{k{c}{d{w}{i}}}".to_string(), &mut ld);
 
-        assert_eq!(sed_2(&t1, &t2, 1), 4);
+        let algo = Sed2Algorithm::new(TraversalKind::Preorder, TraversalKind::ReversedPostorder);
+        let mut idx = algo.preprocess(&[t1, t2]).unwrap();
+        let d2 = idx.remove(1);
+        let q1 = idx.remove(0);
+
+        assert_eq!(sed_2(&q1, &d2, 100), 4);
+        // The lower bound is symmetric in its two arguments.
+        assert_eq!(sed_2(&d2, &q1, 100), 4);
     }
 }

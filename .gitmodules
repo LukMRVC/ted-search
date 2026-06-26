@@ -1,3 +1,6 @@
 [submodule "external-sources/external/tree-similarity"]
 	path = external-sources/external/tree-similarity
 	url = git@github.com:DatabaseGroup/tree-similarity.git
+[submodule "twosed"]
+	path = twosed
+	url = git@gitlab.vsb.cz:radim.baca/twosed.git

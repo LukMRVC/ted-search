@@ -238,6 +238,33 @@ pub fn k_relevant(t1: &TopDiffIndex, t2: &TopDiffIndex, x: i32, y: i32, k: i32) 
     lower_bound <= k
 }
 
+/// Maximum `e_budget` over all node pairs on the left paths (leftmost-child
+/// chains) of the keyroot representative `(x_l, y_l)`.
+///
+/// A single `tree_dist(x_l, y_l, e_max)` call fills the `td` cells for *every*
+/// node pair `(top_x, top_y)` on these left paths, and any of those cells may
+/// later be read by an enclosing keyroot pair that needs it computed with budget
+/// `e_budget(top_x, top_y, k)`. Provisioning the call with only the
+/// representative's own `e_budget(x_l, y_l, k)` under-budgets those inner cells:
+/// a needed subtree distance is left at infinity, and `ted_k` then returns `k+1`
+/// when the true TED is `<= k` (a false negative). Taking the max over the left
+/// paths fixes this while keeping the budget tight (always `<= k`, since every
+/// `e_budget <= k`). Ports the `compute_e_max` branch of the C++
+/// `touzet_kr_set_tree_index_impl.h`, which the source left commented out.
+fn e_max_over_left_paths(t1: &TopDiffIndex, t2: &TopDiffIndex, x_l: i32, y_l: i32, k: i32) -> i32 {
+    let mut e_max = 0;
+    let mut top_x = x_l;
+    while top_x > -1 {
+        let mut top_y = y_l;
+        while top_y > -1 {
+            e_max = e_max.max(e_budget(t1, t2, top_x, top_y, k));
+            top_y = t2.postl_to_lch[top_y as usize];
+        }
+        top_x = t1.postl_to_lch[top_x as usize];
+    }
+    e_max
+}
+
 /// Unit cost model. `del == ins == 1.0`; `ren(a,b) == 0.0` iff label ids match.
 #[inline]
 fn cost_ren(a: i32, b: i32) -> f64 {
@@ -437,7 +464,9 @@ pub fn ted_k(t1: &TopDiffIndex, t2: &TopDiffIndex, k: i32) -> i32 {
 
     // Iterate collected pairs backwards and run forest distance.
     for &(x_l, y_l) in kr_vector.iter().rev() {
-        let e_max = e_budget(t1, t2, x_l, y_l, k);
+        // e_max must cover every inner (left-path) node pair this forest DP
+        // computes, not just the representative; see `e_max_over_left_paths`.
+        let e_max = e_max_over_left_paths(t1, t2, x_l, y_l, k);
         let d = state.tree_dist(t1, t2, x_l, y_l, k, e_max);
         state.td.set(x_l as usize, y_l as usize, d);
     }
@@ -463,6 +492,7 @@ mod tests {
     fn pt(s: &str, dict: &mut LabelDict) -> ParsedTree {
         parse_single(s.to_string(), dict)
     }
+
 
     /// Build a TopDiffIndex from a bracket string with a fresh dict.
     fn build(s: &str) -> TopDiffIndex {
@@ -744,17 +774,26 @@ mod tests {
             ("{a{b{c}}}".into(), "{a{b}{c}}".into()),
             ("{r{a}{b}{c}{d}}".into(), "{r{a{b{c{d}}}}}".into()),
             ("{a{b{c}}{d{e}}}".into(), "{a{b{c}{d}}{e}}".into()),
+            // Regression: true TED == k at the boundary, where using only the
+            // representative's e_budget (instead of the max over its left paths)
+            // left an inner td cell at infinity and returned k+1. See
+            // `e_max_over_left_paths`. These all need k in {2,3} to bite.
+            ("{a{b}}".into(), "{a{c}{b{a}}}".into()),
+            ("{c{b}{a{a}}}".into(), "{c{d{c}}}".into()),
+            ("{b{b{b}{c{d}}}}".into(), "{b{c}}".into()),
         ];
 
-        // Seeded random pairs for breadth.
+        // Seeded random pairs for breadth. Deeper trees (was 8 nodes) are needed:
+        // the left-path budget gap grows with depth, so the boundary bug only
+        // shows up on deeper inputs.
         let mut rng = Lcg(0x1234_5678_9abc_def0);
-        for _ in 0..60 {
-            let a = random_tree(&mut rng, 8);
-            let b = random_tree(&mut rng, 8);
+        for _ in 0..300 {
+            let a = random_tree(&mut rng, 24);
+            let b = random_tree(&mut rng, 24);
             pairs.push((a, b));
         }
 
-        let ks = [1, 2, 3, 50];
+        let ks = [1, 2, 3, 4, 5, 8, 50];
         let mut checked = 0usize;
         for (s1, s2) in &pairs {
             for &k in &ks {
