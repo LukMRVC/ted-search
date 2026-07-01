@@ -17,3 +17,6 @@ ted-lb-bib = { path = "../ted-lb-bib", version = "0.1.0" }
 indextree.workspace = true
 rustc-hash.workspace = true
 itertools.workspace = true
+
+[features]
+profile-phases = ["ted-lb-sed-struct-diff/profile-phases"]

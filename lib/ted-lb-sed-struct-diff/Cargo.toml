@@ -8,3 +8,7 @@ indextree.workspace = true
 rustc-hash.workspace = true
 ted-base = { version = "0.1.0", path = "../ted-base" }
 tree-parsing = { version = "0.1.0", path = "../tree-parsing" }
+
+[features]
+# Accumulate per-phase wall-clock (prune / collect / topdiff) in `ted_k_with_source`.
+profile-phases = []

@@ -370,7 +370,13 @@ pub fn k_relevant(t1: &StructDiffIndex, t2: &StructDiffIndex, x: i32, y: i32, k:
 /// the call with only the representative's `e_budget(x_l, y_l, k)`
 /// under-budgets those inner cells and yields `k+1` when the true TED is `<= k`.
 /// Ports the `compute_e_max` branch of the C++ `touzet_kr_set_tree_index_impl.h`.
-fn e_max_over_left_paths(t1: &StructDiffIndex, t2: &StructDiffIndex, x_l: i32, y_l: i32, k: i32) -> i32 {
+fn e_max_over_left_paths(
+    t1: &StructDiffIndex,
+    t2: &StructDiffIndex,
+    x_l: i32,
+    y_l: i32,
+    k: i32,
+) -> i32 {
     let mut e_max = 0;
     let mut top_x = x_l;
     while top_x > -1 {
@@ -598,6 +604,8 @@ fn sed_struct_lb(t1: &StructDiffIndex, t2: &StructDiffIndex, k: usize) -> usize 
     if a.first_traversal.len() > b.first_traversal.len() {
         (a, b) = (b, a);
     }
+    return bounded_string_edit_distance_with_structure(&a.first_traversal, &b.first_traversal, k);
+
     let first_dist =
         bounded_string_edit_distance_with_structure(&a.first_traversal, &b.first_traversal, k);
     if first_dist > k {
@@ -983,6 +991,68 @@ fn sed_alignment(t1: &StructDiffIndex, t2: &StructDiffIndex, k: i32) -> (i32, Ve
 // Driver.
 // ===========================================================================
 
+/// Optional per-phase profiling. Enable with `--features profile-phases`;
+/// without the feature every hook below compiles to nothing (zero overhead).
+///
+/// Usage:
+/// ```ignore
+/// use ted_lb_sed_struct_diff::phase_timing;
+/// phase_timing::reset();
+/// // ... run many ted_k_struct_diff calls (single- or multi-threaded) ...
+/// let t = phase_timing::snapshot();
+/// println!("prune {:?}  collect {:?}  topdiff {:?}", t.prune, t.collect, t.topdiff);
+/// ```
+#[cfg(feature = "profile-phases")]
+pub mod phase_timing {
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+    use std::time::Duration;
+
+    pub(crate) static PRUNE_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static COLLECT_NS: AtomicU64 = AtomicU64::new(0);
+    pub(crate) static TOPDIFF_NS: AtomicU64 = AtomicU64::new(0);
+
+    /// Nanoseconds accumulated in each phase since the last [`reset`], summed
+    /// over every `ted_k_with_source` call and every thread.
+    #[derive(Debug, Default, Clone, Copy)]
+    pub struct PhaseTimings {
+        pub prune: Duration,
+        pub collect: Duration,
+        pub topdiff: Duration,
+    }
+
+    /// Zero the accumulators before a measured workload.
+    pub fn reset() {
+        PRUNE_NS.store(0, Relaxed);
+        COLLECT_NS.store(0, Relaxed);
+        TOPDIFF_NS.store(0, Relaxed);
+    }
+
+    /// Read the totals accumulated since the last [`reset`].
+    pub fn snapshot() -> PhaseTimings {
+        PhaseTimings {
+            prune: Duration::from_nanos(PRUNE_NS.load(Relaxed)),
+            collect: Duration::from_nanos(COLLECT_NS.load(Relaxed)),
+            topdiff: Duration::from_nanos(TOPDIFF_NS.load(Relaxed)),
+        }
+    }
+}
+
+/// Run `$body`, adding its wall-clock time to the named phase accumulator when
+/// `profile-phases` is on. Without the feature it expands to just `$body`.
+macro_rules! timed_phase {
+    ($acc:ident, $body:block) => {{
+        #[cfg(feature = "profile-phases")]
+        let __start = std::time::Instant::now();
+        let __result = $body;
+        #[cfg(feature = "profile-phases")]
+        phase_timing::$acc.fetch_add(
+            __start.elapsed().as_nanos() as u64,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        __result
+    }};
+}
+
 /// Exact bounded TED via TopDiff with SED-STRUCT-derived top-node pairs.
 /// Returns the exact TED when `<= k`, otherwise `k + 1`. Uses the default
 /// [`PAIR_SOURCE`].
@@ -1004,39 +1074,129 @@ pub fn ted_k_with_source(
         return k + 1;
     }
 
-    // Early prune via the SED-STRUCT structural lower bound.
-    if sed_struct_lb(t1, t2, k as usize) > k as usize {
+    // Phase 1: early prune via the SED-STRUCT structural lower bound.
+    let pruned = timed_phase!(PRUNE_NS, { sed_struct_lb(t1, t2, k as usize) > k as usize });
+    if pruned {
         return k + 1;
     }
 
-    let mut state = TopDiffState::new(t1_size, k);
+    // Phase 2: collect the top-node pairs and sort them inner-first (ascending
+    // (x, y), so every inner keyroot pair is processed before any outer pair
+    // that reads its td cell).
+    let pairs = timed_phase!(COLLECT_NS, {
+        let mut pairs = match source {
+            PairSource::Full => collect_pairs_full(t1, t2, k),
+            PairSource::Struct => collect_pairs_struct(t1, t2, k),
+            PairSource::StructBand => harvest_pairs_via_sed_struct(t1, t2, k),
+            PairSource::SedAlignment => sed_alignment(t1, t2, k).1,
+        };
+        pairs.sort_unstable();
+        pairs
+    });
 
-    let mut pairs = match source {
+    // Phase 3: TopDiff forest DP over the collected pairs.
+    let result = timed_phase!(TOPDIFF_NS, {
+        let mut state = TopDiffState::new(t1_size, k);
+        for &(x_l, y_l) in &pairs {
+            // e_max must cover every inner (left-path) node pair this forest DP
+            // computes, not just the representative; see `e_max_over_left_paths`.
+            let e_max = e_max_over_left_paths(t1, t2, x_l, y_l, k);
+            let d = state.tree_dist(t1, t2, x_l, y_l, k, e_max);
+            state.td.set(x_l as usize, y_l as usize, d);
+        }
+        state
+            .td
+            .read_at((t1_size - 1) as usize, (t2_size - 1) as usize)
+    });
+
+    if !result.is_finite() || result > k as f64 {
+        return k + 1;
+    }
+    result as i32
+}
+
+// ===========================================================================
+// TopNodes matrix: visualization data for the top-node-pair figure.
+// ===========================================================================
+
+/// The overlaid layers of the "Top node pairs" figure for a tree pair at
+/// threshold `k`. Rows are indexed by `x` (postorder id in `t1`), columns by `y`
+/// (postorder id in `t2`); every `Vec<Vec<bool>>` is `n1` rows of `n2` columns.
+///
+/// * `in_band` — `|x - y| <= k` (the k-strip / postorder difference, light gray).
+/// * `struct_ok` — the SED-STRUCT neighborhood test `|sum_x - sum_y| <= k &&
+///   |diff_x - diff_y| <= k` (dark gray).
+/// * `k_relevant` — the `k_relevant` predicate (an extra diagnostic layer).
+/// * `is_topnode` — membership in the deduped top-node representative set fed to
+///   `tree_dist` for the chosen [`PairSource`] (green).
+///
+/// The harvest dedup keeps the independent max-`x` and max-`y` per keyroot pair,
+/// so an `is_topnode` cell can occasionally fall outside `struct_ok`; the layers
+/// are emitted faithfully rather than forcing green ⊆ dark gray.
+#[derive(Debug, Clone)]
+pub struct TopNodeMatrix {
+    pub k: i32,
+    pub n1: i32,
+    pub n2: i32,
+    /// `t1` postorder label ids (row labels `x0..x_{n1-1}`).
+    pub x_labels: Vec<i32>,
+    /// `t2` postorder label ids (column labels `y0..y_{n2-1}`).
+    pub y_labels: Vec<i32>,
+    pub in_band: Vec<Vec<bool>>,
+    pub struct_ok: Vec<Vec<bool>>,
+    pub k_relevant: Vec<Vec<bool>>,
+    pub is_topnode: Vec<Vec<bool>>,
+    /// The raw representative `(x, y)` pairs fed to `tree_dist` for `source`.
+    pub topnode_pairs: Vec<(i32, i32)>,
+}
+
+/// Compute the [`TopNodeMatrix`] layers for `t1` vs `t2` at threshold `k`, with
+/// the top-node (green) layer taken from the given [`PairSource`] (`StructBand`
+/// is the shipped harvest). Pure and deterministic.
+pub fn topnode_matrix(
+    t1: &StructDiffIndex,
+    t2: &StructDiffIndex,
+    k: i32,
+    source: PairSource,
+) -> TopNodeMatrix {
+    let n1 = t1.tree_size;
+    let n2 = t2.tree_size;
+
+    let mut in_band = vec![vec![false; n2 as usize]; n1 as usize];
+    let mut struct_ok = vec![vec![false; n2 as usize]; n1 as usize];
+    let mut k_relevant_grid = vec![vec![false; n2 as usize]; n1 as usize];
+    let mut is_topnode = vec![vec![false; n2 as usize]; n1 as usize];
+
+    for x in 0..n1 {
+        for y in 0..n2 {
+            in_band[x as usize][y as usize] = (x - y).abs() <= k;
+            struct_ok[x as usize][y as usize] = struct_pair_ok(t1, t2, x, y, k);
+            k_relevant_grid[x as usize][y as usize] = k_relevant(t1, t2, x, y, k);
+        }
+    }
+
+    let topnode_pairs = match source {
         PairSource::Full => collect_pairs_full(t1, t2, k),
         PairSource::Struct => collect_pairs_struct(t1, t2, k),
         PairSource::StructBand => harvest_pairs_via_sed_struct(t1, t2, k),
         PairSource::SedAlignment => sed_alignment(t1, t2, k).1,
     };
-
-    // Inner-first ordering: ascending (x, y) so every inner keyroot pair (smaller
-    // postorder id) is processed before any outer pair that reads its td cell.
-    pairs.sort_unstable();
-
-    for &(x_l, y_l) in &pairs {
-        // e_max must cover every inner (left-path) node pair this forest DP
-        // computes, not just the representative; see `e_max_over_left_paths`.
-        let e_max = e_max_over_left_paths(t1, t2, x_l, y_l, k);
-        let d = state.tree_dist(t1, t2, x_l, y_l, k, e_max);
-        state.td.set(x_l as usize, y_l as usize, d);
+    for &(x, y) in &topnode_pairs {
+        is_topnode[x as usize][y as usize] = true;
     }
 
-    let result = state
-        .td
-        .read_at((t1_size - 1) as usize, (t2_size - 1) as usize);
-    if !result.is_finite() || result > k as f64 {
-        return k + 1;
+    TopNodeMatrix {
+        k,
+        n1,
+        n2,
+        x_labels: t1.postl_to_label_id.clone(),
+        y_labels: t2.postl_to_label_id.clone(),
+        in_band,
+        struct_ok,
+        k_relevant: k_relevant_grid,
+        is_topnode,
+        topnode_pairs,
     }
-    result as i32
 }
 
 // ===========================================================================
@@ -1482,6 +1642,58 @@ mod tests {
                     "SED harvest dropped needed top-node pairs for s1={s1} s2={s2} k={k}: \
                      missing={:?}",
                     full.difference(&harvested).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+
+    /// The visualization matrix must reproduce the crate's own predicates
+    /// cell-by-cell, and its green layer must be exactly the harvest set.
+    #[test]
+    fn topnode_matrix_layers_match_predicates() {
+        let pairs = test_pairs();
+        let ks = [1, 2, 3, 50];
+        let sel = TraversalSelection::default();
+        for (s1, s2) in &pairs {
+            for &k in &ks {
+                let mut dict = LabelDict::default();
+                let t1 = StructDiffIndex::from_tree(&pt(s1, &mut dict), sel);
+                let t2 = StructDiffIndex::from_tree(&pt(s2, &mut dict), sel);
+                let m = topnode_matrix(&t1, &t2, k, PairSource::StructBand);
+
+                assert_eq!(m.n1, t1.tree_size);
+                assert_eq!(m.n2, t2.tree_size);
+                assert_eq!(m.x_labels, t1.postl_to_label_id);
+                assert_eq!(m.y_labels, t2.postl_to_label_id);
+
+                for x in 0..t1.tree_size {
+                    for y in 0..t2.tree_size {
+                        let (xi, yi) = (x as usize, y as usize);
+                        assert_eq!(m.in_band[xi][yi], (x - y).abs() <= k);
+                        assert_eq!(m.struct_ok[xi][yi], struct_pair_ok(&t1, &t2, x, y, k));
+                        assert_eq!(m.k_relevant[xi][yi], k_relevant(&t1, &t2, x, y, k));
+                    }
+                }
+
+                // Green layer == the harvested representative set exactly.
+                let harvested: std::collections::HashSet<(i32, i32)> =
+                    harvest_pairs_via_sed_struct(&t1, &t2, k)
+                        .into_iter()
+                        .collect();
+                let green: std::collections::HashSet<(i32, i32)> = (0..t1.tree_size)
+                    .flat_map(|x| (0..t2.tree_size).map(move |y| (x, y)))
+                    .filter(|&(x, y)| m.is_topnode[x as usize][y as usize])
+                    .collect();
+                assert_eq!(
+                    green, harvested,
+                    "green != harvest for s1={s1} s2={s2} k={k}"
+                );
+                assert_eq!(
+                    m.topnode_pairs
+                        .iter()
+                        .cloned()
+                        .collect::<std::collections::HashSet<_>>(),
+                    harvested
                 );
             }
         }

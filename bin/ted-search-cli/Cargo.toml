@@ -9,3 +9,6 @@ colored = "3.0.0"
 console = "0.16.1"
 indicatif = "0.18.3"
 ted-search = { path = "../../lib/ted-search", version = "0.1.0" }
+
+[features]
+profile-phases = ["ted-search/profile-phases"]

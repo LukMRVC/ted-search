@@ -13,6 +13,8 @@ use ted_lb_sed_struct::StringStructAlgorithm;
 pub use ted_lb_sed_struct::StringStructFactory;
 use ted_lb_sed_struct_diff::StructDiffAlgorithm;
 pub use ted_lb_sed_struct_diff::StructDiffFactory;
+#[cfg(feature = "profile-phases")]
+pub use ted_lb_sed_struct_diff::phase_timing;
 pub use ted_lb_structural::{StructuralAlgorithm, StructuralFactory};
 pub use tree_parsing::{
     parse_dataset, parse_queries, parse_single, tree_to_bracket, update_label_dict, LabelDict,

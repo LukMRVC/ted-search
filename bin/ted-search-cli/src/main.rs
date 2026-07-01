@@ -94,6 +94,10 @@ fn main() -> ExitCode {
             style(format!("{i}/{runs}", runs = cli.runs)).bold().dim(),
             ROCKET
         );
+        // Zero the phase accumulators each run so the printed totals reflect a
+        // single (the last) search, matching the per-run `time:` figure.
+        #[cfg(feature = "profile-phases")]
+        ted_search::phase_timing::reset();
         let start = Instant::now();
         search_results = lower_bound_method.search(&data_trees, &query_trees);
         each_try_time.push(start.elapsed());
@@ -123,6 +127,14 @@ fn main() -> ExitCode {
         println!("{}", cli.method);
         println!("time:{}ms", each_try_time.iter().min().unwrap().as_millis());
         println!("candidates:{candidates_count}",);
+    }
+
+    #[cfg(feature = "profile-phases")]
+    {
+        let t = ted_search::phase_timing::snapshot();
+        println!("prune_ms:{:.3}", t.prune.as_secs_f64() * 1e3);
+        println!("collect_ms:{:.3}", t.collect.as_secs_f64() * 1e3);
+        println!("topdiff_ms:{:.3}", t.topdiff.as_secs_f64() * 1e3);
     }
 
     if let Some(output_path) = &cli.output {
