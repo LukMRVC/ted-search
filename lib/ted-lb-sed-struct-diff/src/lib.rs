@@ -604,7 +604,6 @@ fn sed_struct_lb(t1: &StructDiffIndex, t2: &StructDiffIndex, k: usize) -> usize 
     if a.first_traversal.len() > b.first_traversal.len() {
         (a, b) = (b, a);
     }
-    return bounded_string_edit_distance_with_structure(&a.first_traversal, &b.first_traversal, k);
 
     let first_dist =
         bounded_string_edit_distance_with_structure(&a.first_traversal, &b.first_traversal, k);
@@ -622,6 +621,35 @@ pub fn bounded_string_edit_distance_with_structure(
     s1: &[TraversalCharacter],
     s2: &[TraversalCharacter],
     k: usize,
+) -> usize {
+    br_sed_impl(s1, s2, k, |_, _| {})
+}
+
+/// The matrix cells `(row, col)` that the furthest-reaching BR-SED DP *examines*
+/// (compares a character pair for) between `s1` and `s2` at threshold `k` — the
+/// sparse "beeline" Berghel-Roach actually touches, always within the
+/// `|col - row| <= k` band. Same precondition as
+/// [`bounded_string_edit_distance_with_structure`]: `s2.len() >= s1.len()`.
+pub fn br_sed_examined_cells(
+    s1: &[TraversalCharacter],
+    s2: &[TraversalCharacter],
+    k: usize,
+) -> Vec<(i32, i32)> {
+    let mut cells = Vec::new();
+    br_sed_impl(s1, s2, k, |r, c| cells.push((r, c)));
+    cells
+}
+
+/// BR-SED core, generic over a per-examined-cell visitor so callers can either
+/// ignore it (the scalar distance) or harvest the examined cells. `on_examine`
+/// is called with `(row, col)` for every character comparison the snake makes;
+/// those indices are always in bounds. With a no-op visitor this monomorphises
+/// back to the original scalar DP at zero cost.
+fn br_sed_impl<F: FnMut(i32, i32)>(
+    s1: &[TraversalCharacter],
+    s2: &[TraversalCharacter],
+    k: usize,
+    mut on_examine: F,
 ) -> usize {
     use std::cmp::{max, min};
     let s1len = s1.len() as i32;
@@ -720,6 +748,7 @@ pub fn bounded_string_edit_distance_with_structure(
                 while max_row_number < s1len && (max_row_number + diag_offset) < s2len {
                     let c1 = s1.get_unchecked(max_row_number as usize);
                     let c2 = s2.get_unchecked((max_row_number + diag_offset) as usize);
+                    on_examine(max_row_number, max_row_number + diag_offset);
 
                     let char_eq = c1.char == c2.char;
                     struct_ok = (allowed_edits + (c1.sum - c2.sum).abs() <= k)
@@ -1146,6 +1175,10 @@ pub struct TopNodeMatrix {
     pub struct_ok: Vec<Vec<bool>>,
     pub k_relevant: Vec<Vec<bool>>,
     pub is_topnode: Vec<Vec<bool>>,
+    /// The cells the furthest-reaching BR-SED DP examines over the two postorder
+    /// sequences (the sparse "beeline"). Always `⊆ in_band`; contrasts with the
+    /// full band sweep the harvest performs.
+    pub br_sed_visited: Vec<Vec<bool>>,
     /// The raw representative `(x, y)` pairs fed to `tree_dist` for `source`.
     pub topnode_pairs: Vec<(i32, i32)>,
 }
@@ -1185,6 +1218,23 @@ pub fn topnode_matrix(
         is_topnode[x as usize][y as usize] = true;
     }
 
+    // BR-SED examined cells over the postorder sequences. BR-SED requires
+    // `s2.len() >= s1.len()` (orient by size, transpose the DP coords back when
+    // swapped) and `|n1 - n2| <= k` — the same size prune `sed_struct_lb` applies
+    // before ever calling it; when that prune would fire, BR-SED never runs, so
+    // the layer stays empty, faithfully.
+    let mut br_sed_visited = vec![vec![false; n2 as usize]; n1 as usize];
+    if k >= 0 && (n1 - n2).abs() <= k {
+        let (s_t1, s_t2) = (&t1.postl_struct, &t2.postl_struct);
+        let swapped = s_t1.len() > s_t2.len();
+        let (a, b) = if swapped { (s_t2, s_t1) } else { (s_t1, s_t2) };
+        for (row, col) in br_sed_examined_cells(a, b, k as usize) {
+            // `a` is the shorter side: row indexes `a`, col indexes `b`.
+            let (x, y) = if swapped { (col, row) } else { (row, col) };
+            br_sed_visited[x as usize][y as usize] = true;
+        }
+    }
+
     TopNodeMatrix {
         k,
         n1,
@@ -1195,6 +1245,7 @@ pub fn topnode_matrix(
         struct_ok,
         k_relevant: k_relevant_grid,
         is_topnode,
+        br_sed_visited,
         topnode_pairs,
     }
 }
@@ -1694,6 +1745,54 @@ mod tests {
                         .cloned()
                         .collect::<std::collections::HashSet<_>>(),
                     harvested
+                );
+            }
+        }
+    }
+
+    /// BR-SED is diagonal-banded, so every cell it examines must lie in the
+    /// `|x-y| <= k` band shown as light gray.
+    #[test]
+    fn br_sed_visited_within_band() {
+        let pairs = test_pairs();
+        let ks = [1, 2, 3, 50];
+        let sel = TraversalSelection::default();
+        for (s1, s2) in &pairs {
+            for &k in &ks {
+                let mut dict = LabelDict::default();
+                let t1 = StructDiffIndex::from_tree(&pt(s1, &mut dict), sel);
+                let t2 = StructDiffIndex::from_tree(&pt(s2, &mut dict), sel);
+                let m = topnode_matrix(&t1, &t2, k, PairSource::StructBand);
+                for x in 0..t1.tree_size {
+                    for y in 0..t2.tree_size {
+                        if m.br_sed_visited[x as usize][y as usize] {
+                            assert!(
+                                m.in_band[x as usize][y as usize],
+                                "BR-SED examined out-of-band cell ({x},{y}) \
+                                 s1={s1} s2={s2} k={k}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// For two identical trees the snake runs straight down the main diagonal, so
+    /// every `(i, i)` cell must be examined.
+    #[test]
+    fn br_sed_visited_covers_diagonal_for_equal_trees() {
+        let sel = TraversalSelection::default();
+        for s in ["{a}", "{a{b}{c}}", "{a{b{d}}{c}}", "{a{b{c{d}}}}", "{a{b}{c}{d}}"] {
+            let mut dict = LabelDict::default();
+            let t1 = StructDiffIndex::from_tree(&pt(s, &mut dict), sel);
+            let t2 = StructDiffIndex::from_tree(&pt(s, &mut dict), sel);
+            let n = t1.tree_size;
+            let m = topnode_matrix(&t1, &t2, n, PairSource::StructBand);
+            for i in 0..n {
+                assert!(
+                    m.br_sed_visited[i as usize][i as usize],
+                    "diagonal cell ({i},{i}) not examined for equal tree {s}"
                 );
             }
         }

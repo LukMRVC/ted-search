@@ -91,6 +91,9 @@ fn to_json(m: &TopNodeMatrix) -> String {
     out.push_str("\"is_topnode\":");
     write_grid(&mut out, &m.is_topnode);
     out.push(',');
+    out.push_str("\"br_sed_visited\":");
+    write_grid(&mut out, &m.br_sed_visited);
+    out.push(',');
 
     out.push_str("\"topnode_pairs\":[");
     for (i, &(x, y)) in m.topnode_pairs.iter().enumerate() {
