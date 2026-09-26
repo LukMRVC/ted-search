@@ -323,6 +323,19 @@ fn parse_tree_directly(
     Ok(tree_arena)
 }
 
+// True iff `parse_dataset` would keep this line, i.e. it survives both the
+// ASCII gate and `parse_tree_directly` (which applies `input_validate` first).
+// Exposed so external loaders can reproduce the reference collection by calling
+// the reference code, instead of re-deriving the escape rules and drifting.
+pub fn accepts_line(line: &str) -> bool {
+    if !line.is_ascii() {
+        return false;
+    }
+    let label_dict = scc::HashMap::new();
+    let max_node_id = AtomicI32::new(0);
+    parse_tree_directly(line, &label_dict, &max_node_id).is_ok()
+}
+
 pub fn parse_tree(tokens: &[String], ld: &LabelDict) -> Result<ParsedTree, TreeParseError> {
     let mut tree_arena = ParsedTree::with_capacity(tokens.len() / 2);
     let mut node_stack: Vec<NodeId> = vec![];

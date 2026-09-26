@@ -10,3 +10,7 @@ external-sources/build/*
 .vscode/
 *.pdf
 *datasets
+
+.cache/
+build
+docs/superpowers
